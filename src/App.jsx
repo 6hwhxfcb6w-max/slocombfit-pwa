@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { auth, db } from "./firebase";
-import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-import { collection, doc, getDocs, addDoc, updateDoc, deleteDoc, onSnapshot, setDoc, serverTimestamp, query, orderBy } from "firebase/firestore";
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
+import { collection, doc, getDocs, addDoc, deleteDoc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 
 // ============================================================
-// SLOCOMB FITNESS CENTER — PWA v4 (Firebase Edition)
-// Auth, Firestore, localStorage prefs, iOS fix, no yoga
+// SLOCOMB FITNESS CENTER — PWA v5
+// Firebase Auth + Firestore, expanded modals, trainer upload,
+// notification prompt, proper icons, all fixes
 // ============================================================
 
 // ============================================================
@@ -24,7 +25,6 @@ const Icons = {
   trash: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>,
   plus: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>,
   phone: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" /></svg>,
-  mail: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>,
   message: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /></svg>,
   user: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>,
   clock: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>,
@@ -44,6 +44,13 @@ const Icons = {
   lock: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>,
   eye: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
   eyeOff: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>,
+  sms: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/></svg>,
+  camera: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>,
+  key: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>,
+  // iOS Share button icon (for install guide)
+  iosShare: (p) => <svg viewBox="0 0 50 50" fill="none" {...p}><rect x="1" y="1" width="48" height="48" rx="10" fill="#007AFF" /><path d="M25 10v22" stroke="white" strokeWidth="2.5" strokeLinecap="round"/><polyline points="18,17 25,10 32,17" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/><path d="M15 24v12a3 3 0 003 3h14a3 3 0 003-3V24" stroke="white" strokeWidth="2.5" strokeLinecap="round" fill="none"/></svg>,
+  // Android 3-dot menu icon (for install guide)
+  androidMenu: (p) => <svg viewBox="0 0 50 50" fill="none" {...p}><rect x="1" y="1" width="48" height="48" rx="10" fill="#444" /><circle cx="25" cy="14" r="3" fill="white"/><circle cx="25" cy="25" r="3" fill="white"/><circle cx="25" cy="36" r="3" fill="white"/></svg>,
   sfcLogo: (p) => (
     <svg viewBox="0 0 100 100" {...p}>
       <circle cx="50" cy="50" r="47" fill="#B91C1C" stroke="#1a1a1a" strokeWidth="3"/>
@@ -54,7 +61,7 @@ const Icons = {
     </svg>
   ),
 };
-const IC = ({icon, size=20, color, style={}}) => { const I = Icons[icon]; return I ? <I width={size} height={size} style={{color:color||"currentColor",flexShrink:0,...style}} /> : null; };
+const IC = ({icon, size=20, color, style={}, className=""}) => { const I = Icons[icon]; return I ? <I width={size} height={size} style={{color:color||"currentColor",flexShrink:0,...style}} className={className} /> : null; };
 
 // ============================================================
 // DATA & CONSTANTS
@@ -70,7 +77,6 @@ const GYM = {
   hours: "Open 24/7", dropIn: "$10 per class (Venmo accepted)",
 };
 
-// Default data — used to seed Firestore on first run
 const DEFAULT_CLASSES = [
   { id:"c1", name:"Flex", days:"Mon, Wed & Fri", time:"5:15 AM", color:"#B91C1C", description:"Build strength, tone muscle and burn calories. Big weights, big results — push your muscles to the limit.", category:"Strength" },
   { id:"c2", name:"HIGH Fitness", days:"Monday", time:"5:45 PM", color:"#D97706", description:"Old school aerobics transformed into a modern, heart-pounding, fun, effective workout. Jump and dance — no weights needed.", category:"Cardio" },
@@ -81,7 +87,7 @@ const DEFAULT_CLASSES = [
 ];
 
 const DEFAULT_ANNOUNCEMENTS = [
-  { id:"a1", title:"Welcome to the SFC App!", body:"Stay up to date with classes, schedules, and gym news — all in one place.", date:"Feb 25, 2026", pinned:true, type:"announcement" },
+  { id:"a1", title:"Welcome to the SFC App!", body:"Stay up to date with classes, schedules, and gym news — all in one place. Add this app to your home screen for the best experience!", date:"Feb 25, 2026", pinned:true, type:"announcement" },
   { id:"a2", title:"Holiday Hours Reminder", body:"We're open 24/7 as always — even on holidays. The gym never sleeps!", date:"Feb 25, 2026", pinned:false, type:"announcement" },
 ];
 
@@ -158,7 +164,7 @@ const DEFAULT_WORKOUTS = {
 };
 
 // ============================================================
-// COUNTDOWN UTIL
+// UTILITIES
 // ============================================================
 function getNextClass(classes) {
   const now = new Date(); const dow = now.getDay(); const curMin = now.getHours()*60+now.getMinutes();
@@ -177,24 +183,42 @@ function getNextClass(classes) {
 }
 function fmtCd(h,m){ if(h>24)return`${Math.floor(h/24)}d ${h%24}h`; if(h>0)return`${h}h ${m}m`; return`${m}m`; }
 
-// ============================================================
-// FONTS
-// ============================================================
 const fl=document.createElement("link");fl.href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap";fl.rel="stylesheet";document.head.appendChild(fl);
 
-// ============================================================
-// LOCAL STORAGE HELPERS
-// ============================================================
-function loadPref(key, fallback) {
-  try { const v = localStorage.getItem(`sfc_${key}`); return v !== null ? JSON.parse(v) : fallback; }
-  catch { return fallback; }
-}
-function savePref(key, val) {
-  try { localStorage.setItem(`sfc_${key}`, JSON.stringify(val)); } catch {}
+function loadPref(key, fallback) { try { const v=localStorage.getItem(`sfc_${key}`); return v!==null?JSON.parse(v):fallback; } catch{return fallback;} }
+function savePref(key, val) { try { localStorage.setItem(`sfc_${key}`, JSON.stringify(val)); } catch{} }
+
+// Request notification permission
+async function requestNotifPermission() {
+  if (!("Notification" in window)) return "unsupported";
+  if (Notification.permission === "granted") return "granted";
+  if (Notification.permission === "denied") return "denied";
+  const result = await Notification.requestPermission();
+  return result;
 }
 
+// Compress image to base64 for Firestore storage
+function compressImage(file, maxW=400) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const ratio = Math.min(maxW / img.width, maxW / img.height);
+        canvas.width = img.width * ratio;
+        canvas.height = img.height * ratio;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.7));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 // ============================================================
-// THEME CSS GENERATOR (with iOS standalone fix + bigger nav)
+// THEME CSS
 // ============================================================
 function getCSS(dark) {
   const t = dark ? {
@@ -202,15 +226,13 @@ function getCSS(dark) {
     white:"#F5F5F5",gray:"#9CA3AF",muted:"#555562",
     border:"rgba(255,255,255,.06)",borderL:"rgba(255,255,255,.1)",
     heroGrad:"linear-gradient(135deg,#1a0a0a 0%,#1c1218 50%,#0f0a14 100%)",
-    navBg:"rgba(10,10,12,.92)",hdrBg:"rgba(10,10,12,.88)",
-    inputBg:"#0A0A0C",
+    navBg:"rgba(10,10,12,.92)",hdrBg:"rgba(10,10,12,.88)",inputBg:"#0A0A0C",
   } : {
     bg:"#F8F7F4",bg2:"#FFFFFF",card:"#FFFFFF",cardH:"#F3F2EF",
     white:"#1A1A1A",gray:"#6B7280",muted:"#9CA3AF",
     border:"rgba(0,0,0,.08)",borderL:"rgba(0,0,0,.12)",
     heroGrad:"linear-gradient(135deg,#2d1111 0%,#3d1c2e 50%,#1a1030 100%)",
-    navBg:"rgba(248,247,244,.92)",hdrBg:"rgba(248,247,244,.88)",
-    inputBg:"#F3F2EF",
+    navBg:"rgba(248,247,244,.92)",hdrBg:"rgba(248,247,244,.88)",inputBg:"#F3F2EF",
   };
   return `
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -264,11 +286,13 @@ function getCSS(dark) {
   .cdown-lbl{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted)}
   .cdown-name{font-size:15px;font-weight:700;margin-top:1px}
 
-  .ann{background:var(--card);border-radius:var(--r-md);padding:16px 18px;margin-bottom:8px;border:1px solid var(--border);animation:fadeUp .4s ease both}
+  .ann{background:var(--card);border-radius:var(--r-md);padding:16px 18px;margin-bottom:8px;border:1px solid var(--border);animation:fadeUp .4s ease both;cursor:pointer;transition:all .2s}
+  .ann:hover{background:var(--card-h)}
+  .ann:active{transform:scale(.98)}
   .ann.pin{border-color:rgba(185,28,28,.2);background:${dark ? 'linear-gradient(135deg,var(--card),rgba(185,28,28,.04))' : 'linear-gradient(135deg,var(--card),rgba(185,28,28,.06))'}}
   .ann-title{font-size:15px;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:8px}
   .ann-badge{font-size:9px;background:var(--crimson);color:white;padding:2px 7px;border-radius:4px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
-  .ann-body{font-size:13px;color:var(--gray);line-height:1.5}
+  .ann-body{font-size:13px;color:var(--gray);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .ann-date{font-size:11px;color:var(--muted);margin-top:6px}
 
   .cls-scroll{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;margin-bottom:20px;-webkit-overflow-scrolling:touch;scrollbar-width:none;animation:fadeUp .5s ease .15s both}
@@ -302,13 +326,15 @@ function getCSS(dark) {
   .wo-sets{font-family:var(--font-d);font-size:14px;color:var(--gray);letter-spacing:.5px;white-space:nowrap}
   .wo-note{margin-top:14px;padding:14px;background:var(--gold-m);border-radius:var(--r-md);font-size:12px;color:var(--gray);line-height:1.5;border:1px solid rgba(201,169,110,.1)}
 
-  .trainer-card{background:var(--card);border-radius:var(--r-lg);padding:18px;border:1px solid var(--border);margin-bottom:10px;display:flex;gap:14px;animation:fadeUp .4s ease both}
+  .trainer-card{background:var(--card);border-radius:var(--r-lg);padding:18px;border:1px solid var(--border);margin-bottom:10px;display:flex;gap:14px;animation:fadeUp .4s ease both;cursor:pointer;transition:all .2s}
+  .trainer-card:hover{background:var(--card-h)}
+  .trainer-card:active{transform:scale(.98)}
   .trainer-photo{width:56px;height:56px;border-radius:14px;overflow:hidden;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0}
   .trainer-photo img{width:100%;height:100%;object-fit:cover}
   .trainer-name{font-family:var(--font-d);font-size:18px;letter-spacing:1px;margin-bottom:2px}
   .trainer-tags{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px}
   .trainer-tag{font-size:9px;padding:3px 8px;border-radius:10px;background:rgba(185,28,28,.08);color:var(--crimson-l);font-weight:600;letter-spacing:.3px}
-  .trainer-bio{font-size:13px;color:var(--gray);line-height:1.5}
+  .trainer-bio{font-size:13px;color:var(--gray);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .trainer-contact{font-size:12px;color:var(--crimson-l);margin-top:4px}
 
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:12px 20px;border-radius:var(--r-md);font-size:14px;font-weight:700;border:none;cursor:pointer;transition:all .2s;font-family:var(--font-b);width:100%}
@@ -350,6 +376,7 @@ function getCSS(dark) {
   .ig-step{display:flex;gap:12px;margin-bottom:10px;align-items:flex-start}
   .ig-num{width:26px;height:26px;border-radius:50%;background:var(--crimson);color:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
   .ig-step-text{font-size:13px;color:var(--gray);line-height:1.5;padding-top:3px}
+  .ig-icon{display:inline-block;vertical-align:middle;margin:0 2px}
 
   .fb-type{display:flex;gap:4px;margin-bottom:10px}
   .fb-type-btn{flex:1;padding:9px;border-radius:8px;border:1px solid transparent;background:rgba(128,128,128,.06);color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;font-family:var(--font-b);text-align:center}
@@ -358,7 +385,8 @@ function getCSS(dark) {
   .notif-panel{position:fixed;top:0;right:0;width:100%;max-width:430px;height:100vh;background:var(--bg2);z-index:250;animation:slideInRight .3s ease;overflow-y:auto}
   .notif-hdr{display:flex;align-items:center;justify-content:space-between;padding:calc(16px + var(--safe-t)) 20px 16px;border-bottom:1px solid var(--border)}
   .notif-title{font-family:var(--font-d);font-size:22px;letter-spacing:2px}
-  .notif-item{display:flex;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border)}
+  .notif-item{display:flex;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .2s}
+  .notif-item:hover{background:rgba(128,128,128,.06)}
   .notif-item.unread{background:rgba(185,28,28,.04)}
   .notif-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:6px}
   .notif-dot.on{background:var(--crimson)}
@@ -381,9 +409,9 @@ function getCSS(dark) {
   .adm-ta:focus{border-color:var(--crimson)}
   .adm-row{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
   .adm-row:last-child{border-bottom:none}
-  .adm-row-c{flex:1}
+  .adm-row-c{flex:1;min-width:0}
   .adm-row-t{font-weight:600;font-size:14px}
-  .adm-row-s{font-size:12px;color:var(--muted)}
+  .adm-row-s{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .adm-row-a{display:flex;gap:4px}
   .adm-ib{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--input-bg);color:var(--gray);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s}
   .adm-ib:hover{background:var(--card-h);color:var(--white)}
@@ -413,10 +441,15 @@ function getCSS(dark) {
   .login-title{font-family:var(--font-d);font-size:28px;letter-spacing:2px;text-align:center;margin-bottom:4px}
   .login-sub{font-size:13px;color:var(--gray);text-align:center;margin-bottom:30px}
   .login-err{background:rgba(185,28,28,.1);border:1px solid rgba(185,28,28,.2);border-radius:var(--r-sm);padding:10px 14px;font-size:13px;color:var(--crimson-l);margin-bottom:12px;text-align:center}
+  .login-ok{background:rgba(5,150,105,.1);border:1px solid rgba(5,150,105,.2);border-radius:var(--r-sm);padding:10px 14px;font-size:13px;color:#059669;margin-bottom:12px;text-align:center}
   .login-inp{width:100%;background:var(--card);border:1px solid var(--border-l);border-radius:var(--r-md);padding:14px 16px;color:var(--white);font-size:15px;font-family:var(--font-b);margin-bottom:10px;outline:none;transition:border-color .2s}
   .login-inp:focus{border-color:var(--crimson)}
   .login-inp::placeholder{color:var(--muted)}
   .spinner{width:20px;height:20px;border:2px solid rgba(255,255,255,.3);border-top-color:white;border-radius:50%;animation:spin .6s linear infinite;display:inline-block}
+
+  .photo-upload{width:80px;height:80px;border-radius:16px;border:2px dashed var(--border-l);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;transition:all .2s;background:var(--input-bg)}
+  .photo-upload:hover{border-color:var(--crimson)}
+  .photo-upload img{width:100%;height:100%;object-fit:cover}
   `;
 }
 // ============================================================
@@ -427,17 +460,76 @@ function Toggle({on, onChange}) {
 }
 
 // ============================================================
-// NOTIFICATION PANEL
+// ANNOUNCEMENT MODAL (tap to expand)
 // ============================================================
-function NotifPanel({notifs,onClose}) {
+function AnnouncementModal({ann, onClose}) {
+  if (!ann) return null;
+  return <div className="modal-ov" onClick={onClose}><div className="modal-sh" onClick={e=>e.stopPropagation()}>
+    <div className="modal-handle"/>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+      <IC icon="megaphone" size={24} color="var(--crimson-l)"/>
+      <div style={{fontFamily:"var(--font-d)",fontSize:24,letterSpacing:2}}>{ann.title.toUpperCase()}</div>
+    </div>
+    {ann.pinned && <div style={{display:"inline-block",marginBottom:12}}><span className="ann-badge">Pinned</span></div>}
+    <div style={{fontSize:15,lineHeight:1.8,color:"var(--gray)",marginBottom:16,whiteSpace:"pre-wrap"}}>{ann.body}</div>
+    <div style={{fontSize:12,color:"var(--muted)",marginBottom:20}}>{ann.date}</div>
+    <button className="btn btn-s" onClick={onClose}>Close</button>
+  </div></div>;
+}
+
+// ============================================================
+// TRAINER MODAL (tap to expand with call/text)
+// ============================================================
+function TrainerModal({trainer, onClose}) {
+  if (!trainer) return null;
+  const phoneNum = trainer.contact?.match(/[\d()-]+/)?.[0]?.replace(/[^\d]/g, "");
+  return <div className="modal-ov" onClick={onClose}><div className="modal-sh" onClick={e=>e.stopPropagation()}>
+    <div className="modal-handle"/>
+    <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:16}}>
+      <div style={{width:80,height:80,borderRadius:20,overflow:"hidden",background:"var(--bg)",border:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+        {trainer.photo ? <img src={trainer.photo} alt={trainer.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/> : <IC icon="user" size={36} color="var(--muted)"/>}
+      </div>
+      <div>
+        <div style={{fontFamily:"var(--font-d)",fontSize:26,letterSpacing:2}}>{trainer.name.toUpperCase()}</div>
+        {trainer.contact && <div style={{fontSize:13,color:"var(--crimson-l)",marginTop:2}}>{trainer.contact}</div>}
+      </div>
+    </div>
+    {trainer.specialties?.length > 0 && <>
+      <div className="sec-label">Specialties</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:16}}>
+        {trainer.specialties.map(s => <span key={s} className="trainer-tag" style={{fontSize:11,padding:"4px 10px"}}>{s}</span>)}
+      </div>
+    </>}
+    {trainer.bio && <>
+      <div className="sec-label">About</div>
+      <div style={{fontSize:14,lineHeight:1.7,color:"var(--gray)",marginBottom:20,whiteSpace:"pre-wrap"}}>{trainer.bio}</div>
+    </>}
+    {phoneNum && <div style={{display:"flex",gap:8,marginBottom:12}}>
+      <a href={`tel:${phoneNum}`} className="btn btn-p" style={{flex:1,textDecoration:"none",textAlign:"center"}}><IC icon="phone" size={16} color="white"/> Call</a>
+      <a href={`sms:${phoneNum}`} className="btn btn-s" style={{flex:1,textDecoration:"none",textAlign:"center"}}><IC icon="sms" size={16}/> Text</a>
+    </div>}
+    <button className="btn btn-s" onClick={onClose}>Close</button>
+  </div></div>;
+}
+
+// ============================================================
+// NOTIFICATION PANEL (with clickable announcements)
+// ============================================================
+function NotifPanel({notifs, announcements, onClose, onSelectAnn}) {
+  const allItems = [
+    ...notifs.map(n => ({...n, src:"notif"})),
+    ...announcements.map(a => ({id:`ann-${a.id}`, title:a.title, body:a.body, time:a.date, read:true, src:"ann", ann:a})),
+  ];
   return <div className="notif-panel" style={{left:"50%",transform:"translateX(-50%)"}}>
     <div className="notif-hdr"><div className="notif-title">NOTIFICATIONS</div><button className="hdr-btn" onClick={onClose}><IC icon="x" size={18}/></button></div>
-    {notifs.length===0 ? <div style={{padding:40,textAlign:"center",color:"var(--muted)",fontSize:13}}>No notifications yet</div>
-    : notifs.map(n=><div key={n.id} className={`notif-item ${!n.read?"unread":""}`}>
+    {allItems.length===0 ? <div style={{padding:40,textAlign:"center",color:"var(--muted)",fontSize:13}}>No notifications yet</div>
+    : allItems.map(n=><div key={n.id} className={`notif-item ${!n.read?"unread":""}`} onClick={()=>{ if(n.src==="ann" && n.ann) { onClose(); onSelectAnn(n.ann); } }}>
       <div className={`notif-dot ${n.read?"off":"on"}`}/><div style={{flex:1}}>
       <div style={{fontWeight:700,fontSize:14,marginBottom:2}}>{n.title}</div>
-      <div style={{fontSize:13,color:"var(--gray)",lineHeight:1.4}}>{n.body}</div>
-      <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>{n.time}</div></div></div>)}
+      <div style={{fontSize:13,color:"var(--gray)",lineHeight:1.4,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{n.body}</div>
+      <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>{n.time}</div></div>
+      <IC icon="chevronRight" size={14} color="var(--muted)" style={{flexShrink:0,alignSelf:"center"}}/>
+    </div>)}
   </div>;
 }
 
@@ -460,7 +552,7 @@ function ClassModal({cls,onClose}) {
 }
 
 // ============================================================
-// INSTALL GUIDE (idiot-proof version)
+// INSTALL GUIDE (with actual icons)
 // ============================================================
 function InstallGuide({onDismiss}) {
   const [platform, setPlatform] = useState("iphone");
@@ -473,19 +565,16 @@ function InstallGuide({onDismiss}) {
       <button className={`ig-tab ${platform==="android"?"on":""}`} onClick={()=>setPlatform("android")}>Android</button>
     </div>
     {platform==="iphone" ? <>
-      <div className="ig-step"><div className="ig-num">1</div><div className="ig-step-text">Look at the <strong>very bottom of your screen</strong> in Safari. You'll see a row of icons. Tap the <strong>Share button</strong> — it's the square with an arrow pointing up ↑</div></div>
-      <div className="ig-step"><div className="ig-num">2</div><div className="ig-step-text">A menu will slide up. <strong>Scroll down</strong> in that menu until you see <strong>"Add to Home Screen"</strong> — it has a + icon. Tap it.</div></div>
-      <div className="ig-step"><div className="ig-num">3</div><div className="ig-step-text">Tap <strong>"Add"</strong> in the top right corner. Done! You'll see the SFC icon on your home screen. <strong>Open it from there</strong> for the best experience.</div></div>
+      <div className="ig-step"><div className="ig-num">1</div><div className="ig-step-text">In Safari, tap this button at the bottom of your screen: <span className="ig-icon"><Icons.iosShare width={28} height={28} style={{verticalAlign:"middle"}}/></span></div></div>
+      <div className="ig-step"><div className="ig-num">2</div><div className="ig-step-text">Scroll down in the menu and tap <strong>"Add to Home Screen"</strong> (it has a + icon next to it)</div></div>
+      <div className="ig-step"><div className="ig-num">3</div><div className="ig-step-text">Tap <strong>"Add"</strong> in the top right. Done! Open the SFC icon from your home screen.</div></div>
       <div style={{fontSize:11,color:"var(--muted)",marginTop:8,lineHeight:1.5,background:"rgba(128,128,128,.06)",padding:"8px 10px",borderRadius:8}}>
-        <strong>Important:</strong> You MUST use Safari for this. It won't work in Chrome or other browsers on iPhone. Your iPhone needs to be on iOS 16.4 or newer (most are).
+        <strong>Must use Safari</strong> — won't work in Chrome or other browsers. Requires iOS 16.4+
       </div>
     </> : <>
-      <div className="ig-step"><div className="ig-num">1</div><div className="ig-step-text">Tap the <strong>three dots ⋮</strong> in the top-right corner of Chrome (or your browser's menu button)</div></div>
-      <div className="ig-step"><div className="ig-num">2</div><div className="ig-step-text">Look for <strong>"Add to Home screen"</strong> or <strong>"Install app"</strong> in the menu. Tap it.</div></div>
-      <div className="ig-step"><div className="ig-num">3</div><div className="ig-step-text">Tap <strong>"Install"</strong> or <strong>"Add"</strong>. That's it! The SFC app icon will appear on your home screen.</div></div>
-      <div style={{fontSize:11,color:"var(--muted)",marginTop:8,lineHeight:1.5}}>
-        Most Android phones will also show an "Install" banner at the bottom of the screen automatically.
-      </div>
+      <div className="ig-step"><div className="ig-num">1</div><div className="ig-step-text">Tap this button in the top-right corner of Chrome: <span className="ig-icon"><Icons.androidMenu width={28} height={28} style={{verticalAlign:"middle"}}/></span></div></div>
+      <div className="ig-step"><div className="ig-num">2</div><div className="ig-step-text">Tap <strong>"Add to Home screen"</strong> or <strong>"Install app"</strong></div></div>
+      <div className="ig-step"><div className="ig-num">3</div><div className="ig-step-text">Tap <strong>"Install"</strong> or <strong>"Add"</strong>. The SFC icon will appear on your home screen.</div></div>
     </>}
   </div>;
 }
@@ -493,7 +582,7 @@ function InstallGuide({onDismiss}) {
 // ============================================================
 // PAGES
 // ============================================================
-function HomePage({setPage, setSelectedClass, announcements, classes, showInstall, onDismissInstall}) {
+function HomePage({setPage, setSelectedClass, setSelectedAnn, announcements, classes, showInstall, onDismissInstall}) {
   const [next,setNext]=useState(getNextClass(classes));
   useEffect(()=>{const i=setInterval(()=>setNext(getNextClass(classes)),60000);return()=>clearInterval(i);},[classes]);
   const classIcons=["barbell","dumbbell","clock","target","trophy","barbell"];
@@ -516,7 +605,7 @@ function HomePage({setPage, setSelectedClass, announcements, classes, showInstal
 
     <div className="sec-hdr"><div className="sec-label">Announcements</div></div>
     {announcements.length===0 ? <div style={{padding:16,textAlign:"center",color:"var(--muted)",fontSize:13}}>No announcements</div>
-    : announcements.map((a,i)=><div key={a.id} className={`ann ${a.pinned?"pin":""}`} style={{animationDelay:`${i*.06}s`}}>
+    : announcements.map((a,i)=><div key={a.id} className={`ann ${a.pinned?"pin":""}`} style={{animationDelay:`${i*.06}s`}} onClick={()=>setSelectedAnn(a)}>
       <div className="ann-title">{a.title}{a.pinned&&<span className="ann-badge">Pinned</span>}</div>
       <div className="ann-body">{a.body}</div><div className="ann-date">{a.date}</div>
     </div>)}
@@ -576,22 +665,23 @@ function WorkoutsPage({workouts}) {
   </div>;
 }
 
-function TrainersPage({trainers}) {
+function TrainersPage({trainers, onSelect}) {
   return <div className="pg">
-    <div className="page-title">TRAINERS</div><div className="page-sub">Meet our team</div>
+    <div className="page-title">TRAINERS</div><div className="page-sub">Tap a trainer to learn more</div>
     {trainers.length===0 ? <div style={{textAlign:"center",padding:"40px 20px",color:"var(--muted)"}}>
       <IC icon="user" size={40} color="var(--muted)" style={{marginBottom:12}}/>
       <div style={{fontSize:15,fontWeight:600,marginBottom:4,color:"var(--gray)"}}>Coming Soon</div>
       <div style={{fontSize:13}}>Personal trainer profiles will be listed here.</div>
     </div>
-    : trainers.map((t,i)=><div key={t.id} className="trainer-card" style={{animationDelay:`${i*.08}s`}}>
+    : trainers.map((t,i)=><div key={t.id} className="trainer-card" style={{animationDelay:`${i*.08}s`}} onClick={()=>onSelect(t)}>
       <div className="trainer-photo">{t.photo ? <img src={t.photo} alt={t.name}/> : <IC icon="user" size={28} color="var(--muted)"/>}</div>
-      <div style={{flex:1}}>
+      <div style={{flex:1,minWidth:0}}>
         <div className="trainer-name">{t.name.toUpperCase()}</div>
         {t.specialties?.length>0 && <div className="trainer-tags">{t.specialties.map(s=><span key={s} className="trainer-tag">{s}</span>)}</div>}
         <div className="trainer-bio">{t.bio}</div>
         {t.contact && <div className="trainer-contact">{t.contact}</div>}
       </div>
+      <IC icon="chevronRight" size={16} color="var(--muted)" style={{flexShrink:0,alignSelf:"center"}}/>
     </div>)}
   </div>;
 }
@@ -611,7 +701,7 @@ function ContactPage() {
     <div className="ct-card"><div className="ct-label">Email</div><div className="ct-val"><a href={`mailto:${GYM.email}`}>{GYM.email}</a></div></div>
     <div style={{display:"flex",gap:8,marginTop:10}}>
       <a href={`tel:${GYM.phone}`} className="btn btn-p" style={{flex:1,textDecoration:"none",textAlign:"center"}}><IC icon="phone" size={16} color="white"/> Call</a>
-      <a href={GYM.facebook} target="_blank" rel="noopener" className="btn btn-s" style={{flex:1,textDecoration:"none",textAlign:"center"}}><IC icon="message" size={16}/> Facebook</a>
+      <a href={GYM.facebook} target="_blank" rel="noopener" className="btn btn-s" style={{flex:1,textDecoration:"none",textAlign:"center"}}><IC icon="facebook" size={16}/> Facebook</a>
     </div>
     <div style={{marginTop:16}}><div className="sec-label">Follow Us</div></div>
     <div className="social-links">
@@ -624,7 +714,7 @@ function ContactPage() {
   </div>;
 }
 
-function SettingsPage({dark, setDark, notifPrefs, setNotifPrefs}) {
+function SettingsPage({dark, setDark, notifPrefs, setNotifPrefs, onRequestNotifs}) {
   return <div className="pg">
     <div className="page-title">SETTINGS</div><div className="page-sub">Customize your experience</div>
     <div className="set-card">
@@ -638,7 +728,10 @@ function SettingsPage({dark, setDark, notifPrefs, setNotifPrefs}) {
       <div className="set-title"><IC icon="bell" size={18}/> NOTIFICATIONS</div>
       <div className="set-row">
         <div className="set-row-info"><div className="set-row-label">All Notifications</div><div className="set-row-desc">Master switch for all push notifications</div></div>
-        <Toggle on={notifPrefs.all} onChange={v=>setNotifPrefs({...notifPrefs, all:v, announcements: v ? notifPrefs.announcements : false, classes: v ? notifPrefs.classes : false})}/>
+        <Toggle on={notifPrefs.all} onChange={v=>{
+          if(v) onRequestNotifs();
+          setNotifPrefs({...notifPrefs, all:v, announcements: v ? notifPrefs.announcements : false, classes: v ? notifPrefs.classes : false});
+        }}/>
       </div>
       <div className="set-row" style={{opacity:notifPrefs.all?1:.4,pointerEvents:notifPrefs.all?"auto":"none"}}>
         <div className="set-row-info"><div className="set-row-label">Announcements</div><div className="set-row-desc">Gym news, closures, and events</div></div>
@@ -648,6 +741,12 @@ function SettingsPage({dark, setDark, notifPrefs, setNotifPrefs}) {
         <div className="set-row-info"><div className="set-row-label">Class Updates</div><div className="set-row-desc">Cancellations and schedule changes</div></div>
         <Toggle on={notifPrefs.classes} onChange={v=>setNotifPrefs({...notifPrefs, classes:v})}/>
       </div>
+      {"Notification" in window && Notification.permission !== "granted" && notifPrefs.all && <div style={{marginTop:8,padding:10,background:"var(--gold-m)",borderRadius:8,fontSize:12,color:"var(--gray)",lineHeight:1.5}}>
+        <strong>Note:</strong> {Notification.permission === "denied"
+          ? "You've blocked notifications. To enable them, go to your browser settings and allow notifications for this site."
+          : "Tap below to allow notifications from SFC."}
+        {Notification.permission !== "denied" && <button className="btn btn-p" style={{marginTop:8,padding:"8px 16px",fontSize:12}} onClick={onRequestNotifs}>Allow Notifications</button>}
+      </div>}
     </div>
     <FeedbackSection/>
   </div>;
@@ -662,9 +761,8 @@ function FeedbackSection() {
   const [sent,setSent]=useState(false);
   const submit=async()=>{
     if(!msg.trim())return;
-    try {
-      await addDoc(collection(db, "feedback"), { type, message: msg.trim(), createdAt: serverTimestamp() });
-    } catch(e) { console.error("Feedback save error:", e); }
+    try { await addDoc(collection(db, "feedback"), { type, message: msg.trim(), createdAt: serverTimestamp() }); }
+    catch(e) { console.error("Feedback save error:", e); }
     setSent(true); setMsg(""); setTimeout(()=>setSent(false),3000);
   };
   return <div className="set-card">
@@ -682,7 +780,7 @@ function FeedbackSection() {
   </div>;
 }
 // ============================================================
-// ADMIN LOGIN
+// ADMIN LOGIN (with password change)
 // ============================================================
 function AdminLogin({onLogin, onBack}) {
   const [email, setEmail] = useState("");
@@ -725,9 +823,29 @@ function AdminLogin({onLogin, onBack}) {
 }
 
 // ============================================================
+// FEEDBACK DETAIL MODAL (admin)
+// ============================================================
+function FeedbackDetailModal({item, onClose, onDelete}) {
+  if(!item) return null;
+  return <div className="modal-ov" onClick={onClose}><div className="modal-sh" onClick={e=>e.stopPropagation()}>
+    <div className="modal-handle"/>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+      <IC icon="flag" size={22} color="var(--crimson-l)"/>
+      <div style={{fontFamily:"var(--font-d)",fontSize:22,letterSpacing:1.5,textTransform:"capitalize"}}>{item.type}</div>
+    </div>
+    {item.createdAt && <div style={{fontSize:12,color:"var(--muted)",marginBottom:12}}>{new Date(item.createdAt.seconds*1000).toLocaleString()}</div>}
+    <div style={{fontSize:15,lineHeight:1.8,color:"var(--gray)",marginBottom:20,whiteSpace:"pre-wrap"}}>{item.message}</div>
+    <div style={{display:"flex",gap:8}}>
+      <button className="btn btn-s" style={{flex:1}} onClick={onClose}>Close</button>
+      <button className="btn btn-p" style={{flex:1,background:"#991B1B"}} onClick={()=>{onDelete(item.id);onClose();}}><IC icon="trash" size={14} color="white"/> Delete</button>
+    </div>
+  </div></div>;
+}
+
+// ============================================================
 // ADMIN PANEL (Firebase-powered)
 // ============================================================
-function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncements, workouts, setWorkouts, trainers, setTrainers, feedback}) {
+function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncements, workouts, setWorkouts, trainers, setTrainers, feedback, onDeleteFeedback}) {
   const [tab,setTab]=useState("dashboard");
   const [toast,setToast]=useState(null);
   const [editingClass,setEditingClass]=useState(null);
@@ -738,33 +856,61 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
   const [woDuration,setWoDuration]=useState("30");
   const [newExercise,setNewExercise]=useState({name:"",sets:3,reps:"10"});
   const [newTrainer,setNewTrainer]=useState({name:"",bio:"",contact:"",photo:null,specialties:[]});
+  const [feedbackDetail, setFeedbackDetail] = useState(null);
+
+  // Password change state
+  const [showPwChange, setShowPwChange] = useState(false);
+  const [curPw, setCurPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [newPw2, setNewPw2] = useState("");
+  const [pwError, setPwError] = useState("");
+  const [pwSuccess, setPwSuccess] = useState("");
+  const [pwLoading, setPwLoading] = useState(false);
+
+  const photoInputRef = useRef(null);
 
   const flash=(msg)=>{setToast(msg);setTimeout(()=>setToast(null),2500);};
 
   // Firestore CRUD helpers
-  const saveClass = async (cls) => {
-    try { await setDoc(doc(db, "classes", cls.id), cls); } catch(e) { console.error(e); }
-  };
-  const deleteClass = async (id) => {
-    try { await deleteDoc(doc(db, "classes", id)); } catch(e) { console.error(e); }
-  };
-  const saveAnnouncement = async (ann) => {
-    try { await setDoc(doc(db, "announcements", ann.id), ann); } catch(e) { console.error(e); }
-  };
-  const deleteAnnouncement = async (id) => {
-    try { await deleteDoc(doc(db, "announcements", id)); } catch(e) { console.error(e); }
-  };
-  const saveTrainer = async (t) => {
-    try { await setDoc(doc(db, "trainers", String(t.id)), t); } catch(e) { console.error(e); }
-  };
-  const deleteTrainer = async (id) => {
-    try { await deleteDoc(doc(db, "trainers", String(id))); } catch(e) { console.error(e); }
-  };
-  const saveWorkouts = async (wo) => {
-    try { await setDoc(doc(db, "config", "workouts"), { data: JSON.stringify(wo) }); } catch(e) { console.error(e); }
-  };
+  const saveClass = async (cls) => { try { await setDoc(doc(db, "classes", cls.id), cls); } catch(e) { console.error(e); } };
+  const deleteClassDoc = async (id) => { try { await deleteDoc(doc(db, "classes", id)); } catch(e) { console.error(e); } };
+  const saveAnnouncement = async (ann) => { try { await setDoc(doc(db, "announcements", ann.id), ann); } catch(e) { console.error(e); } };
+  const deleteAnnouncement = async (id) => { try { await deleteDoc(doc(db, "announcements", id)); } catch(e) { console.error(e); } };
+  const saveTrainer = async (t) => { try { await setDoc(doc(db, "trainers", String(t.id)), {...t, id:String(t.id)}); } catch(e) { console.error(e); } };
+  const deleteTrainer = async (id) => { try { await deleteDoc(doc(db, "trainers", String(id))); } catch(e) { console.error(e); } };
+  const saveWorkouts = async (wo) => { try { await setDoc(doc(db, "config", "workouts"), { data: JSON.stringify(wo) }); } catch(e) { console.error(e); } };
 
   const handleLogout = async () => { await signOut(auth); onExit(); };
+
+  const handlePasswordChange = async () => {
+    setPwError(""); setPwSuccess("");
+    if (!curPw || !newPw || !newPw2) { setPwError("Fill in all fields."); return; }
+    if (newPw !== newPw2) { setPwError("New passwords don't match."); return; }
+    if (newPw.length < 6) { setPwError("New password must be at least 6 characters."); return; }
+    setPwLoading(true);
+    try {
+      const user = auth.currentUser;
+      const cred = EmailAuthProvider.credential(user.email, curPw);
+      await reauthenticateWithCredential(user, cred);
+      await updatePassword(user, newPw);
+      setPwSuccess("Password changed successfully!");
+      setCurPw(""); setNewPw(""); setNewPw2("");
+      setTimeout(() => { setPwSuccess(""); setShowPwChange(false); }, 2000);
+    } catch(e) {
+      if (e.code === "auth/wrong-password" || e.code === "auth/invalid-credential") setPwError("Current password is incorrect.");
+      else setPwError("Failed to change password. Try again.");
+    }
+    setPwLoading(false);
+  };
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const base64 = await compressImage(file, 400);
+      setNewTrainer(prev => ({...prev, photo: base64}));
+    } catch(err) { console.error("Photo upload error:", err); }
+  };
 
   const toggleSpec=(spec)=>{
     setNewTrainer(prev=>{
@@ -777,16 +923,19 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
     {id:"dashboard",label:"Dashboard"},{id:"announcements",label:"Announce"},
     {id:"notifications",label:"Push"},{id:"classes",label:"Classes"},
     {id:"workouts",label:"Workouts"},{id:"trainers",label:"Trainers"},
-    {id:"feedback",label:"Feedback"},
+    {id:"feedback",label:"Feedback"},{id:"account",label:"Account"},
   ];
 
   return <div className="adm" style={{animation:"fadeIn .3s ease"}}>
     {toast&&<div className="toast">{toast}</div>}
+    <FeedbackDetailModal item={feedbackDetail} onClose={()=>setFeedbackDetail(null)} onDelete={onDeleteFeedback}/>
     <div className="adm-hdr">
-      <div><div className="adm-title">SFC ADMIN</div><div style={{fontSize:11,color:"var(--muted)"}}>Manage your gym app</div></div>
+      <div><div className="adm-title">SFC ADMIN</div><div style={{fontSize:11,color:"var(--muted)"}}>{auth.currentUser?.email}</div></div>
       <div style={{display:"flex",gap:6,alignItems:"center"}}>
         <div className="adm-badge">STAFF</div>
-        <button className="adm-ib" onClick={handleLogout} title="Logout"><IC icon="lock" size={14}/></button>
+        <button className="adm-ib" onClick={handleLogout} title="Logout" style={{gap:4,width:"auto",padding:"0 10px",fontSize:11,fontWeight:600,color:"var(--crimson-l)"}}>
+          <IC icon="lock" size={12}/> Logout
+        </button>
         <button className="adm-ib" onClick={onExit}><IC icon="x" size={16}/></button>
       </div>
     </div>
@@ -816,11 +965,9 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
         <input type="checkbox" checked={newAnn.pinned} onChange={e=>setNewAnn({...newAnn,pinned:e.target.checked})}/> Pin to top</label>
       <button className="btn btn-p" onClick={async()=>{
         if(!newAnn.title)return;
-        const id=`a${Date.now()}`;
-        const today=new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
+        const id=`a${Date.now()}`;const today=new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
         const ann={...newAnn,id,date:today};
-        setAnnouncements(p=>[ann,...p]);
-        await saveAnnouncement(ann);
+        setAnnouncements(p=>[ann,...p]); await saveAnnouncement(ann);
         setNewAnn({title:"",body:"",pinned:false,type:"announcement"});flash("Announcement posted");
       }}>Post Announcement</button>
       <div style={{marginTop:20}}><div style={{fontSize:12,fontWeight:700,color:"var(--muted)",marginBottom:10}}>EXISTING</div>
@@ -860,8 +1007,7 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
         <textarea className="adm-ta" placeholder="Description..." value={editingClass.description} onChange={e=>setEditingClass({...editingClass,description:e.target.value})}/>
         <div style={{display:"flex",gap:8}}><button className="btn btn-p" style={{flex:1}} onClick={async()=>{
           setClasses(p=>p.map(c=>c.id===editingClass.id?{...editingClass}:c));
-          await saveClass(editingClass);
-          setEditingClass(null);flash("Class updated");
+          await saveClass(editingClass); setEditingClass(null);flash("Class updated");
         }}>Save</button>
         <button className="btn btn-s" style={{flex:1}} onClick={()=>setEditingClass(null)}>Cancel</button></div>
       </div> : <>
@@ -869,7 +1015,7 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
           <div style={{width:6,height:36,borderRadius:3,background:cls.color,flexShrink:0}}/>
           <div className="adm-row-c"><div className="adm-row-t">{cls.name}</div><div className="adm-row-s">{cls.days} · {cls.time}</div></div>
           <div className="adm-row-a"><button className="adm-ib" onClick={()=>setEditingClass({...cls})}><IC icon="edit" size={14}/></button>
-          <button className="adm-ib del" onClick={async()=>{setClasses(p=>p.filter(c=>c.id!==cls.id));await deleteClass(cls.id);flash("Class removed");}}><IC icon="trash" size={14}/></button></div>
+          <button className="adm-ib del" onClick={async()=>{setClasses(p=>p.filter(c=>c.id!==cls.id));await deleteClassDoc(cls.id);flash("Class removed");}}><IC icon="trash" size={14}/></button></div>
         </div>)}
         <div style={{marginTop:16,background:"var(--input-bg)",borderRadius:12,padding:16,border:"1px solid var(--border-l)"}}>
           <div style={{fontSize:12,fontWeight:700,color:"var(--muted)",marginBottom:10}}>ADD NEW CLASS</div>
@@ -881,8 +1027,7 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
           <button className="btn btn-p" onClick={async()=>{
             if(!newClass.name||!newClass.days||!newClass.time)return;
             const cls={...newClass,id:`c${Date.now()}`};
-            setClasses(p=>[...p,cls]);
-            await saveClass(cls);
+            setClasses(p=>[...p,cls]); await saveClass(cls);
             setNewClass({name:"",days:"",time:"",color:"#B91C1C",description:"",category:""});flash("Class added");
           }}><IC icon="plus" size={14} color="white"/> Add Class</button>
         </div>
@@ -900,8 +1045,7 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
         <div style={{fontFamily:"var(--font-d)",fontSize:16,color:"var(--crimson-l)",width:24,textAlign:"center"}}>{i+1}</div>
         <div className="adm-row-c"><div className="adm-row-t">{ex.name}</div><div className="adm-row-s">{ex.sets} × {ex.reps}</div></div>
         <button className="adm-ib del" onClick={async()=>{
-          const u=JSON.parse(JSON.stringify(workouts));
-          u[woCategory][woDuration]=u[woCategory][woDuration].filter(e=>e.id!==ex.id);
+          const u=JSON.parse(JSON.stringify(workouts));u[woCategory][woDuration]=u[woCategory][woDuration].filter(e=>e.id!==ex.id);
           setWorkouts(u); await saveWorkouts(u); flash("Removed");
         }}><IC icon="trash" size={14}/></button>
       </div>)}
@@ -911,8 +1055,7 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
         <div style={{display:"flex",gap:6}}><input className="adm-inp" type="number" placeholder="Sets" value={newExercise.sets} onChange={e=>setNewExercise({...newExercise,sets:+e.target.value||0})} style={{flex:1}}/>
         <input className="adm-inp" placeholder="Reps" value={newExercise.reps} onChange={e=>setNewExercise({...newExercise,reps:e.target.value})} style={{flex:1}}/></div>
         <button className="btn btn-p" onClick={async()=>{
-          if(!newExercise.name)return;
-          const u=JSON.parse(JSON.stringify(workouts));
+          if(!newExercise.name)return; const u=JSON.parse(JSON.stringify(workouts));
           u[woCategory][woDuration].push({...newExercise,id:`e${Date.now()}`});
           setWorkouts(u); await saveWorkouts(u);
           setNewExercise({name:"",sets:3,reps:"10"});flash("Exercise added");
@@ -930,17 +1073,22 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
       </div>)}
       <div style={{marginTop:14,background:"var(--input-bg)",borderRadius:12,padding:14,border:"1px solid var(--border-l)"}}>
         <div style={{fontSize:12,fontWeight:700,color:"var(--muted)",marginBottom:8}}>ADD TRAINER</div>
+        <div style={{display:"flex",gap:12,marginBottom:10,alignItems:"center"}}>
+          <div className="photo-upload" onClick={()=>photoInputRef.current?.click()}>
+            {newTrainer.photo ? <img src={newTrainer.photo} alt=""/> : <><IC icon="camera" size={22} color="var(--muted)"/><div style={{fontSize:9,color:"var(--muted)",marginTop:2}}>Photo</div></>}
+          </div>
+          <input ref={photoInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handlePhotoUpload}/>
+          <div style={{flex:1,fontSize:12,color:"var(--muted)",lineHeight:1.4}}>Tap to upload a photo. It'll be compressed and stored with the trainer profile.</div>
+        </div>
         <input className="adm-inp" placeholder="Trainer name" value={newTrainer.name} onChange={e=>setNewTrainer({...newTrainer,name:e.target.value})}/>
         <textarea className="adm-ta" placeholder="Bio — specialties, certifications, etc." value={newTrainer.bio} onChange={e=>setNewTrainer({...newTrainer,bio:e.target.value})}/>
-        <input className="adm-inp" placeholder="Contact info" value={newTrainer.contact} onChange={e=>setNewTrainer({...newTrainer,contact:e.target.value})}/>
-        <input className="adm-inp" placeholder="Photo URL" value={newTrainer.photo||""} onChange={e=>setNewTrainer({...newTrainer,photo:e.target.value})}/>
+        <input className="adm-inp" placeholder="Contact info (phone number)" value={newTrainer.contact} onChange={e=>setNewTrainer({...newTrainer,contact:e.target.value})}/>
         <div style={{fontSize:12,fontWeight:700,color:"var(--muted)",marginBottom:6,marginTop:4}}>SPECIALTIES (select all that apply)</div>
         <div className="spec-grid">{TRAINER_SPECIALTIES.map(s=><button key={s} className={`spec-chip ${newTrainer.specialties.includes(s)?"on":""}`} onClick={()=>toggleSpec(s)}>{s}</button>)}</div>
         <button className="btn btn-p" onClick={async()=>{
           if(!newTrainer.name)return;
-          const t={...newTrainer,id:Date.now()};
-          setTrainers(p=>[...p,t]);
-          await saveTrainer(t);
+          const t={...newTrainer,id:String(Date.now())};
+          setTrainers(p=>[...p,t]); await saveTrainer(t);
           setNewTrainer({name:"",bio:"",contact:"",photo:null,specialties:[]});flash("Trainer added");
         }}><IC icon="plus" size={14} color="white"/> Add Trainer</button>
       </div>
@@ -948,13 +1096,38 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
 
     {tab==="feedback"&&<div className="adm-sec">
       <div className="adm-sec-t"><IC icon="flag" size={18}/> MEMBER FEEDBACK</div>
-      {feedback.length===0 ? <div style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:13}}>No feedback submitted yet. Member submissions will appear here.</div>
-      : feedback.map((f,i)=><div key={f.id||i} className="adm-row"><div className="adm-row-c">
-        <div className="adm-row-t" style={{textTransform:"capitalize"}}>{f.type}</div>
-        <div className="adm-row-s">{f.message}</div>
-        {f.createdAt && <div style={{fontSize:10,color:"var(--muted)",marginTop:2}}>{new Date(f.createdAt.seconds*1000).toLocaleDateString()}</div>}
-      </div></div>)}
+      <div style={{fontSize:12,color:"var(--muted)",marginBottom:12}}>Tap to read full message. {feedback.length} total.</div>
+      {feedback.length===0 ? <div style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:13}}>No feedback submitted yet.</div>
+      : feedback.map((f,i)=><div key={f.id||i} className="adm-row" style={{cursor:"pointer"}} onClick={()=>setFeedbackDetail(f)}>
+        <div className="adm-row-c">
+          <div className="adm-row-t" style={{textTransform:"capitalize"}}>{f.type}</div>
+          <div className="adm-row-s">{f.message}</div>
+          {f.createdAt && <div style={{fontSize:10,color:"var(--muted)",marginTop:2}}>{new Date(f.createdAt.seconds*1000).toLocaleDateString()}</div>}
+        </div>
+        <div className="adm-row-a">
+          <button className="adm-ib del" onClick={(e)=>{e.stopPropagation();onDeleteFeedback(f.id);flash("Deleted");}}><IC icon="trash" size={14}/></button>
+        </div>
+      </div>)}
     </div>}
+
+    {tab==="account"&&<>
+      <div className="adm-sec">
+        <div className="adm-sec-t"><IC icon="user" size={18}/> ACCOUNT</div>
+        <div style={{fontSize:14,marginBottom:4}}><strong>Email:</strong> {auth.currentUser?.email}</div>
+        <div style={{fontSize:12,color:"var(--muted)",marginBottom:16}}>To add or remove admin accounts, go to Firebase Console → Authentication.</div>
+        <button className="btn btn-s" onClick={()=>setShowPwChange(!showPwChange)}><IC icon="key" size={14}/> {showPwChange ? "Cancel" : "Change Password"}</button>
+        {showPwChange && <div style={{marginTop:14,padding:14,background:"var(--input-bg)",borderRadius:12,border:"1px solid var(--border-l)"}}>
+          {pwError && <div className="login-err">{pwError}</div>}
+          {pwSuccess && <div className="login-ok">{pwSuccess}</div>}
+          <input className="adm-inp" type="password" placeholder="Current password" value={curPw} onChange={e=>setCurPw(e.target.value)}/>
+          <input className="adm-inp" type="password" placeholder="New password (min 6 characters)" value={newPw} onChange={e=>setNewPw(e.target.value)}/>
+          <input className="adm-inp" type="password" placeholder="Confirm new password" value={newPw2} onChange={e=>setNewPw2(e.target.value)}/>
+          <button className="btn btn-p" onClick={handlePasswordChange} disabled={pwLoading}>
+            {pwLoading ? <span className="spinner"/> : "Update Password"}
+          </button>
+        </div>}
+      </div>
+    </>}
   </div>;
 }
 // ============================================================
@@ -963,9 +1136,12 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
 export default function App() {
   const [page, setPage] = useState("home");
   const [selectedClass, setSelectedClass] = useState(null);
+  const [selectedAnn, setSelectedAnn] = useState(null);
+  const [selectedTrainer, setSelectedTrainer] = useState(null);
   const [showAdmin, setShowAdmin] = useState(false);
   const [isAuthed, setIsAuthed] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
+  const [notifsChecked, setNotifsChecked] = useState(() => loadPref("notifsChecked", false));
   const [dark, setDark] = useState(() => loadPref("dark", true));
   const [showInstall, setShowInstall] = useState(() => loadPref("showInstall", true));
   const [notifPrefs, setNotifPrefs] = useState(() => loadPref("notifPrefs", {all:true, announcements:true, classes:true}));
@@ -985,11 +1161,27 @@ export default function App() {
   useEffect(() => { savePref("notifPrefs", notifPrefs); }, [notifPrefs]);
   const dismissInstall = useCallback(() => { setShowInstall(false); savePref("showInstall", false); }, []);
 
+  // Open notif panel — clears the red dot
+  const openNotifs = () => { setShowNotifs(true); setNotifsChecked(true); savePref("notifsChecked", true); };
+
+  // Request notification permission
+  const handleRequestNotifs = async () => {
+    const result = await requestNotifPermission();
+    if (result === "granted") {
+      // Permission granted — in the future, register FCM token here
+      console.log("Notification permission granted");
+    }
+  };
+
+  // Delete feedback
+  const handleDeleteFeedback = async (id) => {
+    setFeedback(p => p.filter(f => f.id !== id));
+    try { await deleteDoc(doc(db, "feedback", id)); } catch(e) { console.error(e); }
+  };
+
   // Listen for auth state
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      setIsAuthed(!!user);
-    });
+    const unsub = onAuthStateChanged(auth, (user) => { setIsAuthed(!!user); });
     return unsub;
   }, []);
 
@@ -998,50 +1190,34 @@ export default function App() {
     let unsubClasses, unsubAnn, unsubTrainers, unsubFeedback;
 
     const loadData = async () => {
-      // Classes listener
       unsubClasses = onSnapshot(collection(db, "classes"), (snap) => {
         if (snap.empty) {
-          // Seed with defaults if collection is empty
           DEFAULT_CLASSES.forEach(c => setDoc(doc(db, "classes", c.id), c).catch(()=>{}));
           setClasses(DEFAULT_CLASSES);
         } else {
           setClasses(snap.docs.map(d => ({ ...d.data(), id: d.id })));
         }
-      }, (err) => {
-        console.error("Classes listener error:", err);
-        setClasses(DEFAULT_CLASSES);
-      });
+      }, (err) => { console.error("Classes listener error:", err); setClasses(DEFAULT_CLASSES); });
 
-      // Announcements listener
       unsubAnn = onSnapshot(collection(db, "announcements"), (snap) => {
         if (snap.empty) {
           DEFAULT_ANNOUNCEMENTS.forEach(a => setDoc(doc(db, "announcements", a.id), a).catch(()=>{}));
           setAnnouncements(DEFAULT_ANNOUNCEMENTS);
         } else {
           const anns = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-          anns.sort((a, b) => {
-            if (a.pinned && !b.pinned) return -1;
-            if (!a.pinned && b.pinned) return 1;
-            return 0;
-          });
+          anns.sort((a, b) => { if (a.pinned && !b.pinned) return -1; if (!a.pinned && b.pinned) return 1; return 0; });
           setAnnouncements(anns);
         }
-      }, (err) => {
-        console.error("Announcements listener error:", err);
-        setAnnouncements(DEFAULT_ANNOUNCEMENTS);
-      });
+      }, (err) => { console.error("Announcements listener error:", err); setAnnouncements(DEFAULT_ANNOUNCEMENTS); });
 
-      // Trainers listener
       unsubTrainers = onSnapshot(collection(db, "trainers"), (snap) => {
         setTrainers(snap.docs.map(d => ({ ...d.data(), id: d.id })));
       }, () => setTrainers([]));
 
-      // Feedback listener (admin only, but load anyway)
       unsubFeedback = onSnapshot(collection(db, "feedback"), (snap) => {
         setFeedback(snap.docs.map(d => ({ ...d.data(), id: d.id })));
       }, () => setFeedback([]));
 
-      // Workouts (single document)
       try {
         const woSnap = await getDocs(collection(db, "config"));
         const woDoc = woSnap.docs.find(d => d.id === "workouts");
@@ -1051,24 +1227,25 @@ export default function App() {
           await setDoc(doc(db, "config", "workouts"), { data: JSON.stringify(DEFAULT_WORKOUTS) }).catch(()=>{});
           setWorkouts(DEFAULT_WORKOUTS);
         }
-      } catch {
-        setWorkouts(DEFAULT_WORKOUTS);
-      }
+      } catch { setWorkouts(DEFAULT_WORKOUTS); }
 
       setLoading(false);
     };
 
     loadData();
-
-    return () => {
-      if (unsubClasses) unsubClasses();
-      if (unsubAnn) unsubAnn();
-      if (unsubTrainers) unsubTrainers();
-      if (unsubFeedback) unsubFeedback();
-    };
+    return () => { unsubClasses?.(); unsubAnn?.(); unsubTrainers?.(); unsubFeedback?.(); };
   }, []);
 
-  const hasUnread = notifications.some(n => !n.read);
+  // Request notification permission on first load if prefs are on and in standalone mode
+  useEffect(() => {
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+    if (isStandalone && notifPrefs.all && "Notification" in window && Notification.permission === "default") {
+      // Small delay so the app loads first
+      setTimeout(() => requestNotifPermission(), 2000);
+    }
+  }, []);
+
+  const hasUnread = !notifsChecked && notifications.some(n => !n.read);
 
   const navItems = [
     {id:"home",icon:"home",label:"Home"},
@@ -1079,7 +1256,6 @@ export default function App() {
     {id:"settings",icon:"settings",label:"Settings"},
   ];
 
-  // Loading screen
   if (loading) return <>
     <style>{getCSS(dark)}</style>
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"var(--bg)"}}>
@@ -1088,18 +1264,17 @@ export default function App() {
     </div>
   </>;
 
-  // Admin login screen
   if (showAdmin && !isAuthed) return <>
     <style>{getCSS(dark)}</style>
     <AdminLogin onLogin={()=>{}} onBack={()=>setShowAdmin(false)}/>
   </>;
 
-  // Admin panel (authenticated)
   if (showAdmin && isAuthed) return <>
     <style>{getCSS(dark)}</style>
     <AdminPanel onExit={()=>setShowAdmin(false)} classes={classes} setClasses={setClasses}
       announcements={announcements} setAnnouncements={setAnnouncements}
-      workouts={workouts} setWorkouts={setWorkouts} trainers={trainers} setTrainers={setTrainers} feedback={feedback}/>
+      workouts={workouts} setWorkouts={setWorkouts} trainers={trainers} setTrainers={setTrainers}
+      feedback={feedback} onDeleteFeedback={handleDeleteFeedback}/>
   </>;
 
   return <>
@@ -1111,22 +1286,24 @@ export default function App() {
           <div className="hdr-title">SLOCOMB FITNESS</div>
         </div>
         <div className="hdr-actions">
-          <button className={`hdr-btn notif ${hasUnread?"has":""}`} onClick={()=>setShowNotifs(true)}><IC icon="bell" size={18}/></button>
+          <button className={`hdr-btn notif ${hasUnread?"has":""}`} onClick={openNotifs}><IC icon="bell" size={18}/></button>
           <button className="hdr-btn" onClick={()=>setShowAdmin(true)} title="Admin Login" style={{fontSize:10,fontFamily:"var(--font-d)",letterSpacing:1}}>
             ADM
           </button>
         </div>
       </header>
 
-      {page==="home"&&<HomePage setPage={setPage} setSelectedClass={setSelectedClass} announcements={announcements} classes={classes} showInstall={showInstall} onDismissInstall={dismissInstall}/>}
+      {page==="home"&&<HomePage setPage={setPage} setSelectedClass={setSelectedClass} setSelectedAnn={setSelectedAnn} announcements={announcements} classes={classes} showInstall={showInstall} onDismissInstall={dismissInstall}/>}
       {page==="schedule"&&<SchedulePage setSelectedClass={setSelectedClass} classes={classes}/>}
       {page==="workouts"&&<WorkoutsPage workouts={workouts}/>}
-      {page==="trainers"&&<TrainersPage trainers={trainers}/>}
+      {page==="trainers"&&<TrainersPage trainers={trainers} onSelect={setSelectedTrainer}/>}
       {page==="contact"&&<ContactPage/>}
-      {page==="settings"&&<SettingsPage dark={dark} setDark={setDark} notifPrefs={notifPrefs} setNotifPrefs={setNotifPrefs}/>}
+      {page==="settings"&&<SettingsPage dark={dark} setDark={setDark} notifPrefs={notifPrefs} setNotifPrefs={setNotifPrefs} onRequestNotifs={handleRequestNotifs}/>}
 
       <ClassModal cls={selectedClass} onClose={()=>setSelectedClass(null)}/>
-      {showNotifs&&<NotifPanel notifs={notifications} onClose={()=>setShowNotifs(false)}/>}
+      <AnnouncementModal ann={selectedAnn} onClose={()=>setSelectedAnn(null)}/>
+      <TrainerModal trainer={selectedTrainer} onClose={()=>setSelectedTrainer(null)}/>
+      {showNotifs&&<NotifPanel notifs={notifications} announcements={announcements} onClose={()=>setShowNotifs(false)} onSelectAnn={(a)=>setSelectedAnn(a)}/>}
 
       <nav className="bnav">
         {navItems.map(item=><button key={item.id} className={`nav-i ${page===item.id?"on":""}`} onClick={()=>setPage(item.id)}>

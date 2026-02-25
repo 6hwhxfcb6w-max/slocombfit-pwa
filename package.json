@@ -1,14 +1,15 @@
 {
   "name": "slocombfit-pwa",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Slocomb Fitness Center - Progressive Web App",
+  "description": "Slocomb Fitness Center — Progressive Web App with Firebase",
   "scripts": {
     "dev": "react-scripts start",
     "start": "react-scripts start",
     "build": "react-scripts build"
   },
   "dependencies": {
+    "firebase": "^10.8.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1"

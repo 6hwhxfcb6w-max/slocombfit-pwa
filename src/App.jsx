@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { auth, db } from "./firebase";
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
+import { collection, doc, getDocs, addDoc, updateDoc, deleteDoc, onSnapshot, setDoc, serverTimestamp, query, orderBy } from "firebase/firestore";
 
 // ============================================================
-// SLOCOMB FITNESS CENTER — PWA v3
-// Light/Dark mode, User settings, Smart install guide,
-// Notification prefs, Feedback system, Trainer tags, Social links
+// SLOCOMB FITNESS CENTER — PWA v4 (Firebase Edition)
+// Auth, Firestore, localStorage prefs, iOS fix, no yoga
 // ============================================================
 
 // ============================================================
@@ -39,6 +41,9 @@ const Icons = {
   instagram: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="2" y="2" width="20" height="20" rx="5" /><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z" /><line x1="17.5" y1="6.5" x2="17.51" y2="6.5" /></svg>,
   facebook: (p) => <svg viewBox="0 0 24 24" fill="currentColor" {...p}><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z" /></svg>,
   upload: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>,
+  lock: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>,
+  eye: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+  eyeOff: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>,
   sfcLogo: (p) => (
     <svg viewBox="0 0 100 100" {...p}>
       <circle cx="50" cy="50" r="47" fill="#B91C1C" stroke="#1a1a1a" strokeWidth="3"/>
@@ -52,37 +57,32 @@ const Icons = {
 const IC = ({icon, size=20, color, style={}}) => { const I = Icons[icon]; return I ? <I width={size} height={size} style={{color:color||"currentColor",flexShrink:0,...style}} /> : null; };
 
 // ============================================================
-// DATA
+// DATA & CONSTANTS
 // ============================================================
 const GYM = {
   name: "Slocomb Fitness Center", short: "SFC", tagline: "Live Local. Lift Local.",
   mission: "Our mission is to empower our community to achieve their health and fitness goals through a welcoming environment, expert guidance, and a supportive community spirit.",
   address: "130 S Dalton Street, Slocomb, AL 36375",
   phone: "(334) 258-4001", email: "slocombfitnesscenter@gmail.com",
-  facebook: "https://www.facebook.com/messages/t/105632845754794",
-  facebookPage: "https://www.facebook.com/profile.php?id=100063768498498",
+  facebook: "https://www.facebook.com/p/Slocomb-Fitness-Center-100089148735561/",
+  facebookPage: "https://www.facebook.com/p/Slocomb-Fitness-Center-100089148735561/",
   instagram: "https://www.instagram.com/slocombfitnesscenter/",
   hours: "Open 24/7", dropIn: "$10 per class (Venmo accepted)",
 };
 
-const INITIAL_CLASSES = [
-  { id:1, name:"Flex", days:"Mon, Wed & Fri", time:"5:15 AM", color:"#B91C1C", description:"Build strength, tone muscle and burn calories. Big weights, big results — push your muscles to the limit.", category:"Strength" },
-  { id:2, name:"HIGH Fitness", days:"Monday", time:"5:45 PM", color:"#D97706", description:"Old school aerobics transformed into a modern, heart-pounding, fun, effective workout. Jump and dance — no weights needed.", category:"Cardio" },
-  { id:3, name:"Press for Time", days:"Tue & Thu", time:"4:30 PM", color:"#059669", description:"Move at your own pace. Clearly defined intervals — push it to the limit, then rest. Perfect for all levels.", category:"HIIT" },
-  { id:4, name:"Ultimate Cardio", days:"Tuesday", time:"5:45 PM", color:"#7C3AED", description:"HIIT, body pump, and cardio style workout all rolled into one. High energy, total body burn.", category:"HIIT / Cardio" },
-  { id:5, name:"Remix", days:"Thursday", time:"5:45 PM", color:"#9333EA", description:"A little bit of everything — cardio, free weights, and body weight exercises to your favorite beats. Total body workout.", category:"Mixed" },
-  { id:6, name:"Hip Hop", days:"Saturday", time:"8:00 AM", color:"#DB2777", description:"High-energy workout that burns calories and boosts your mood. Latest beats, full-body workout — fun and effective.", category:"Dance" },
-  { id:7, name:"Yoga", days:"Wednesday", time:"5:30 PM", color:"#0891B2", description:"Enhance stretching, strength, and flexibility through calming poses and breathwork. All levels welcome.", category:"Mind & Body" },
-  { id:8, name:"Yoga", days:"Saturday", time:"9:15 AM", color:"#0891B2", description:"Enhance stretching, strength, and flexibility through calming poses and breathwork. All levels welcome.", category:"Mind & Body" },
+// Default data — used to seed Firestore on first run
+const DEFAULT_CLASSES = [
+  { id:"c1", name:"Flex", days:"Mon, Wed & Fri", time:"5:15 AM", color:"#B91C1C", description:"Build strength, tone muscle and burn calories. Big weights, big results — push your muscles to the limit.", category:"Strength" },
+  { id:"c2", name:"HIGH Fitness", days:"Monday", time:"5:45 PM", color:"#D97706", description:"Old school aerobics transformed into a modern, heart-pounding, fun, effective workout. Jump and dance — no weights needed.", category:"Cardio" },
+  { id:"c3", name:"Press for Time", days:"Tue & Thu", time:"4:30 PM", color:"#059669", description:"Move at your own pace. Clearly defined intervals — push it to the limit, then rest. Perfect for all levels.", category:"HIIT" },
+  { id:"c4", name:"Ultimate Cardio", days:"Tuesday", time:"5:45 PM", color:"#7C3AED", description:"HIIT, body pump, and cardio style workout all rolled into one. High energy, total body burn.", category:"HIIT / Cardio" },
+  { id:"c5", name:"Remix", days:"Thursday", time:"5:45 PM", color:"#9333EA", description:"A little bit of everything — cardio, free weights, and body weight exercises to your favorite beats. Total body workout.", category:"Mixed" },
+  { id:"c6", name:"Hip Hop", days:"Saturday", time:"8:00 AM", color:"#DB2777", description:"High-energy workout that burns calories and boosts your mood. Latest beats, full-body workout — fun and effective.", category:"Dance" },
 ];
 
-const INITIAL_ANNOUNCEMENTS = [
-  { id:1, title:"Welcome to the SFC App!", body:"Stay up to date with classes, schedules, and gym news — all in one place.", date:"Feb 16, 2026", pinned:true, type:"announcement" },
-  { id:2, title:"Holiday Hours Reminder", body:"We're open 24/7 as always — even on holidays. The gym never sleeps!", date:"Feb 14, 2026", pinned:false, type:"announcement" },
-];
-
-const INITIAL_NOTIFICATIONS = [
-  { id:1, title:"Welcome to SFC!", body:"You'll get important updates here — class cancellations, schedule changes, and gym news.", time:"Just now", read:false, type:"announcement" },
+const DEFAULT_ANNOUNCEMENTS = [
+  { id:"a1", title:"Welcome to the SFC App!", body:"Stay up to date with classes, schedules, and gym news — all in one place.", date:"Feb 25, 2026", pinned:true, type:"announcement" },
+  { id:"a2", title:"Holiday Hours Reminder", body:"We're open 24/7 as always — even on holidays. The gym never sleeps!", date:"Feb 25, 2026", pinned:false, type:"announcement" },
 ];
 
 const TRAINER_SPECIALTIES = [
@@ -93,9 +93,7 @@ const TRAINER_SPECIALTIES = [
   "Group Fitness", "Boxing / Kickboxing", "Prenatal / Postpartum",
 ];
 
-const INITIAL_TRAINERS = [];
-
-const INITIAL_WORKOUTS = {
+const DEFAULT_WORKOUTS = {
   "Upper Body": {
     "30": [
       { id:"u30-1", name:"Barbell Bench Press", sets:3, reps:"10" },
@@ -185,7 +183,18 @@ function fmtCd(h,m){ if(h>24)return`${Math.floor(h/24)}d ${h%24}h`; if(h>0)retur
 const fl=document.createElement("link");fl.href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap";fl.rel="stylesheet";document.head.appendChild(fl);
 
 // ============================================================
-// THEME CSS GENERATOR
+// LOCAL STORAGE HELPERS
+// ============================================================
+function loadPref(key, fallback) {
+  try { const v = localStorage.getItem(`sfc_${key}`); return v !== null ? JSON.parse(v) : fallback; }
+  catch { return fallback; }
+}
+function savePref(key, val) {
+  try { localStorage.setItem(`sfc_${key}`, JSON.stringify(val)); } catch {}
+}
+
+// ============================================================
+// THEME CSS GENERATOR (with iOS standalone fix + bigger nav)
 // ============================================================
 function getCSS(dark) {
   const t = dark ? {
@@ -213,7 +222,7 @@ function getCSS(dark) {
     --border:${t.border};--border-l:${t.borderL};
     --r-sm:10px;--r-md:14px;--r-lg:20px;--r-xl:24px;
     --font-d:'Oswald',sans-serif;--font-b:'Inter',system-ui,sans-serif;
-    --safe-b:env(safe-area-inset-bottom,0px);
+    --safe-t:env(safe-area-inset-top,0px);--safe-b:env(safe-area-inset-bottom,0px);
     --hero-grad:${t.heroGrad};--nav-bg:${t.navBg};--hdr-bg:${t.hdrBg};--input-bg:${t.inputBg};
   }
   body{font-family:var(--font-b);background:var(--bg);color:var(--white);overflow-x:hidden;-webkit-font-smoothing:antialiased}
@@ -221,9 +230,10 @@ function getCSS(dark) {
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
   @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
   @keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}
+  @keyframes spin{to{transform:rotate(360deg)}}
 
-  .app{max-width:430px;margin:0 auto;min-height:100vh;background:var(--bg);position:relative;padding-bottom:calc(88px + var(--safe-b))}
-  .hdr{position:sticky;top:0;z-index:100;background:var(--hdr-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;justify-content:space-between}
+  .app{max-width:430px;margin:0 auto;min-height:100vh;background:var(--bg);position:relative;padding-bottom:calc(92px + var(--safe-b))}
+  .hdr{position:sticky;top:0;z-index:100;background:var(--hdr-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid var(--border);padding:calc(10px + var(--safe-t)) 20px 10px;display:flex;align-items:center;justify-content:space-between}
   .hdr-brand{display:flex;align-items:center;gap:10px}
   .hdr-logo{width:38px;height:38px;border-radius:50%;overflow:hidden;flex-shrink:0}
   .hdr-title{font-family:var(--font-d);font-size:18px;font-weight:600;letter-spacing:2px}
@@ -288,81 +298,65 @@ function getCSS(dark) {
   .wo-dur-btn.active{background:linear-gradient(135deg,var(--crimson),#991B1B);color:white;border-color:var(--crimson);box-shadow:0 4px 16px var(--crimson-glow)}
   .wo-exercise{display:flex;align-items:center;gap:14px;background:var(--card);border-radius:var(--r-md);padding:14px 16px;margin-bottom:6px;border:1px solid var(--border);animation:fadeUp .3s ease both}
   .wo-num{font-family:var(--font-d);font-size:20px;color:var(--crimson-l);width:28px;text-align:center;flex-shrink:0}
-  .wo-name{font-weight:600;font-size:14px;flex:1}
-  .wo-sets{font-family:var(--font-d);font-size:14px;color:var(--gold);letter-spacing:.5px;text-align:right;white-space:nowrap}
-  .wo-note{background:var(--gold-m);border:1px solid rgba(201,169,110,.2);border-radius:var(--r-md);padding:14px 16px;margin-top:12px;font-size:12px;color:var(--gold);line-height:1.5}
+  .wo-name{flex:1;font-weight:600;font-size:14px}
+  .wo-sets{font-family:var(--font-d);font-size:14px;color:var(--gray);letter-spacing:.5px;white-space:nowrap}
+  .wo-note{margin-top:14px;padding:14px;background:var(--gold-m);border-radius:var(--r-md);font-size:12px;color:var(--gray);line-height:1.5;border:1px solid rgba(201,169,110,.1)}
 
-  .trainer-card{background:var(--card);border-radius:var(--r-lg);padding:20px;margin-bottom:12px;border:1px solid var(--border);animation:fadeUp .4s ease both;display:flex;gap:16px;align-items:flex-start}
-  .trainer-photo{width:72px;height:72px;border-radius:var(--r-md);background:var(--bg);border:1px solid var(--border-l);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden}
+  .trainer-card{background:var(--card);border-radius:var(--r-lg);padding:18px;border:1px solid var(--border);margin-bottom:10px;display:flex;gap:14px;animation:fadeUp .4s ease both}
+  .trainer-photo{width:56px;height:56px;border-radius:14px;overflow:hidden;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0}
   .trainer-photo img{width:100%;height:100%;object-fit:cover}
-  .trainer-name{font-family:var(--font-d);font-size:20px;letter-spacing:1px;margin-bottom:4px}
-  .trainer-bio{font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:8px}
-  .trainer-tags{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
-  .trainer-tag{font-size:10px;padding:3px 8px;border-radius:20px;background:rgba(185,28,28,.1);color:var(--crimson-l);font-weight:600;letter-spacing:.3px}
-  .trainer-contact{font-size:12px;color:var(--crimson-l);font-weight:600}
+  .trainer-name{font-family:var(--font-d);font-size:18px;letter-spacing:1px;margin-bottom:2px}
+  .trainer-tags{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px}
+  .trainer-tag{font-size:9px;padding:3px 8px;border-radius:10px;background:rgba(185,28,28,.08);color:var(--crimson-l);font-weight:600;letter-spacing:.3px}
+  .trainer-bio{font-size:13px;color:var(--gray);line-height:1.5}
+  .trainer-contact{font-size:12px;color:var(--crimson-l);margin-top:4px}
 
-  .ct-card{background:var(--card);border-radius:var(--r-lg);padding:18px 20px;margin-bottom:10px;border:1px solid var(--border);animation:fadeUp .4s ease both}
-  .ct-label{font-size:10px;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:4px}
-  .ct-val{font-size:15px;font-weight:600}
-  .ct-val a{color:var(--crimson-l);text-decoration:none}
-  .map-box{border-radius:var(--r-lg);overflow:hidden;margin-bottom:14px;border:1px solid var(--border);height:200px;background:var(--card);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s}
-  .map-box:hover{border-color:var(--border-l)}
-  .social-links{display:flex;gap:10px;margin-top:12px;margin-bottom:16px}
-  .social-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--card);color:var(--white);font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;text-decoration:none}
-  .social-btn:hover{background:var(--card-h)}
-
-  .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px;border-radius:var(--r-md);font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;border:none;font-family:var(--font-b)}
-  .btn-p{background:linear-gradient(135deg,var(--crimson),#991B1B);color:white;box-shadow:0 4px 16px var(--crimson-glow)}
-  .btn-p:hover{transform:translateY(-1px);box-shadow:0 6px 24px var(--crimson-glow)}
-  .btn-s{background:var(--card);color:var(--white);border:1px solid var(--border-l)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:12px 20px;border-radius:var(--r-md);font-size:14px;font-weight:700;border:none;cursor:pointer;transition:all .2s;font-family:var(--font-b);width:100%}
+  .btn-p{background:var(--crimson);color:white}
+  .btn-p:hover{background:#991B1B}
+  .btn-s{background:var(--card);color:var(--white);border:1px solid var(--border)}
   .btn-s:hover{background:var(--card-h)}
 
-  .bnav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;background:var(--nav-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:2px solid var(--border-l);display:flex;justify-content:space-around;padding:8px 4px calc(10px + var(--safe-b));z-index:200;box-shadow:0 -4px 20px rgba(0,0,0,.15)}
-  .nav-i{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 12px;border-radius:14px;cursor:pointer;transition:all .2s;border:none;background:none;min-width:56px}
-  .nav-i-ic{color:var(--gray);transition:all .2s}
-  .nav-i-lb{font-size:11px;font-weight:700;color:var(--gray);letter-spacing:.5px;transition:all .2s}
-  .nav-i.on .nav-i-ic{color:var(--crimson-l)}
-  .nav-i.on .nav-i-lb{color:var(--crimson-l)}
-  .nav-i.on{background:rgba(185,28,28,.12)}
+  .ct-card{background:var(--card);border-radius:var(--r-md);padding:14px 16px;margin-bottom:6px;border:1px solid var(--border)}
+  .ct-label{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:3px}
+  .ct-val{font-size:14px;font-weight:500}
+  .ct-val a{color:var(--crimson-l);text-decoration:none}
+  .map-box{background:var(--card);border-radius:var(--r-lg);padding:30px 20px;border:1px solid var(--border);margin-bottom:16px;cursor:pointer;transition:all .2s}
+  .map-box:hover{background:var(--card-h)}
+  .social-links{display:flex;gap:8px;margin-bottom:16px}
+  .social-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:var(--r-md);background:var(--card);border:1px solid var(--border);color:var(--white);text-decoration:none;font-size:13px;font-weight:600;transition:all .2s}
+  .social-btn:hover{background:var(--card-h)}
 
-  /* SETTINGS PANEL */
-  .set-card{background:var(--card);border-radius:var(--r-lg);padding:18px;margin-bottom:12px;border:1px solid var(--border);animation:fadeUp .4s ease both}
-  .set-title{font-family:var(--font-d);font-size:16px;letter-spacing:1.5px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
-  .set-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)}
+  .set-card{background:var(--card);border-radius:var(--r-lg);padding:18px;border:1px solid var(--border);margin-bottom:14px}
+  .set-title{font-family:var(--font-d);font-size:16px;letter-spacing:1.5px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .set-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)}
   .set-row:last-child{border-bottom:none}
   .set-row-info{flex:1}
   .set-row-label{font-size:14px;font-weight:600}
   .set-row-desc{font-size:12px;color:var(--muted);margin-top:1px}
-  .toggle{position:relative;width:48px;height:28px;border-radius:14px;cursor:pointer;transition:all .3s;flex-shrink:0;border:none}
-  .toggle.off{background:var(--input-bg);border:1px solid var(--border-l)}
+  .toggle{width:44px;height:26px;border-radius:13px;border:none;padding:2px;cursor:pointer;transition:all .25s;flex-shrink:0}
   .toggle.on{background:var(--crimson)}
-  .toggle-thumb{position:absolute;top:3px;width:20px;height:20px;background:white;border-radius:50%;transition:all .3s;box-shadow:0 1px 4px rgba(0,0,0,.2)}
-  .toggle.off .toggle-thumb{left:4px}
-  .toggle.on .toggle-thumb{left:24px}
+  .toggle.off{background:var(--muted)}
+  .toggle-thumb{width:22px;height:22px;border-radius:50%;background:white;transition:transform .25s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+  .toggle.on .toggle-thumb{transform:translateX(18px)}
 
-  /* INSTALL GUIDE */
-  .install-guide{background:var(--card);border-radius:var(--r-xl);padding:24px;margin-bottom:16px;border:1px solid var(--border-l);animation:fadeUp .5s ease .2s both;position:relative}
-  .ig-dismiss{position:absolute;top:12px;right:12px;width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.05);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);transition:all .2s}
-  .ig-dismiss:hover{color:var(--white)}
-  .ig-title{font-family:var(--font-d);font-size:20px;letter-spacing:1.5px;margin-bottom:4px}
-  .ig-sub{font-size:12px;color:var(--muted);margin-bottom:16px}
-  .ig-tabs{display:flex;gap:4px;margin-bottom:16px}
-  .ig-tab{flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;text-align:center;font-family:var(--font-b)}
+  .install-guide{background:var(--card);border-radius:var(--r-lg);padding:20px;border:1px solid rgba(185,28,28,.15);margin-bottom:20px;position:relative;animation:fadeUp .5s ease .2s both}
+  .ig-dismiss{position:absolute;top:12px;right:12px;background:none;border:none;color:var(--muted);cursor:pointer;padding:4px}
+  .ig-title{font-family:var(--font-d);font-size:18px;letter-spacing:1.5px;margin-bottom:4px}
+  .ig-sub{font-size:12px;color:var(--gray);margin-bottom:14px;line-height:1.4}
+  .ig-tabs{display:flex;gap:4px;margin-bottom:14px}
+  .ig-tab{flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;font-family:var(--font-b)}
   .ig-tab.on{background:var(--crimson);color:white;border-color:var(--crimson)}
-  .ig-step{display:flex;gap:14px;align-items:flex-start;margin-bottom:14px}
-  .ig-num{width:28px;height:28px;border-radius:50%;background:var(--crimson);color:white;display:flex;align-items:center;justify-content:center;font-family:var(--font-d);font-size:14px;flex-shrink:0}
-  .ig-step-text{font-size:13px;line-height:1.5;color:var(--gray);padding-top:3px}
-  .ig-step-text strong{color:var(--white)}
+  .ig-step{display:flex;gap:12px;margin-bottom:10px;align-items:flex-start}
+  .ig-num{width:26px;height:26px;border-radius:50%;background:var(--crimson);color:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
+  .ig-step-text{font-size:13px;color:var(--gray);line-height:1.5;padding-top:3px}
 
-  /* FEEDBACK */
-  .fb-card{background:var(--card);border-radius:var(--r-lg);padding:18px;margin-bottom:10px;border:1px solid var(--border);animation:fadeUp .4s ease both}
-  .fb-type{display:flex;gap:4px;margin-bottom:12px}
-  .fb-type-btn{flex:1;padding:9px;border-radius:8px;border:1px solid transparent;background:rgba(255,255,255,.03);color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;font-family:var(--font-b);text-align:center}
+  .fb-type{display:flex;gap:4px;margin-bottom:10px}
+  .fb-type-btn{flex:1;padding:9px;border-radius:8px;border:1px solid transparent;background:rgba(128,128,128,.06);color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;font-family:var(--font-b);text-align:center}
   .fb-type-btn.on{border-color:var(--crimson);color:var(--crimson-l);background:rgba(185,28,28,.06)}
 
-  /* NOTIF PANEL */
   .notif-panel{position:fixed;top:0;right:0;width:100%;max-width:430px;height:100vh;background:var(--bg2);z-index:250;animation:slideInRight .3s ease;overflow-y:auto}
-  .notif-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)}
+  .notif-hdr{display:flex;align-items:center;justify-content:space-between;padding:calc(16px + var(--safe-t)) 20px 16px;border-bottom:1px solid var(--border)}
   .notif-title{font-family:var(--font-d);font-size:22px;letter-spacing:2px}
   .notif-item{display:flex;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border)}
   .notif-item.unread{background:rgba(185,28,28,.04)}
@@ -370,8 +364,7 @@ function getCSS(dark) {
   .notif-dot.on{background:var(--crimson)}
   .notif-dot.off{background:var(--muted);opacity:.3}
 
-  /* ADMIN */
-  .adm{max-width:900px;margin:0 auto;padding:20px}
+  .adm{max-width:900px;margin:0 auto;padding:calc(20px + var(--safe-t)) 20px 20px}
   .adm-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid var(--border)}
   .adm-title{font-family:var(--font-d);font-size:26px;letter-spacing:2px}
   .adm-badge{background:linear-gradient(135deg,var(--crimson),var(--gold));color:white;font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;letter-spacing:.5px}
@@ -399,18 +392,35 @@ function getCSS(dark) {
   .adm-tabs::-webkit-scrollbar{display:none}
   .adm-tab{padding:9px 12px;border-radius:7px;border:none;background:transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;font-family:var(--font-b);white-space:nowrap}
   .adm-tab.on{background:var(--card);color:var(--white)}
-  .toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:var(--crimson);color:white;padding:12px 24px;border-radius:var(--r-md);font-weight:700;font-size:13px;z-index:999;animation:fadeUp .3s ease;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+  .toast{position:fixed;top:calc(16px + var(--safe-t));left:50%;transform:translateX(-50%);background:var(--crimson);color:white;padding:12px 24px;border-radius:var(--r-md);font-weight:700;font-size:13px;z-index:999;animation:fadeUp .3s ease;box-shadow:0 8px 32px rgba(0,0,0,.4)}
   .spec-grid{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px}
   .spec-chip{font-size:11px;padding:6px 10px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:all .2s;font-family:var(--font-b)}
   .spec-chip.on{border-color:var(--crimson);color:var(--crimson-l);background:rgba(185,28,28,.06)}
   .page-title{font-family:var(--font-d);font-size:30px;letter-spacing:2px}
   .page-sub{font-size:13px;color:var(--gray);margin-bottom:16px}
   .gold-line{width:40px;height:2px;background:var(--gold);margin:12px 0;border-radius:1px}
+
+  .bnav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;background:var(--nav-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:2px solid var(--border-l);display:flex;justify-content:space-around;padding:10px 4px calc(12px + var(--safe-b));z-index:200;box-shadow:0 -4px 20px rgba(0,0,0,.15)}
+  .nav-i{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 12px;border-radius:14px;cursor:pointer;transition:all .2s;border:none;background:none;min-width:56px}
+  .nav-i-ic{color:var(--gray);transition:all .2s}
+  .nav-i-lb{font-size:11px;font-weight:700;color:var(--gray);letter-spacing:.5px;transition:all .2s}
+  .nav-i.on .nav-i-ic{color:var(--crimson-l)}
+  .nav-i.on .nav-i-lb{color:var(--crimson-l)}
+  .nav-i.on{background:rgba(185,28,28,.12)}
+
+  .login-wrap{max-width:400px;margin:0 auto;padding:60px 24px;min-height:100vh;display:flex;flex-direction:column;justify-content:center}
+  .login-logo{width:80px;height:80px;margin:0 auto 20px}
+  .login-title{font-family:var(--font-d);font-size:28px;letter-spacing:2px;text-align:center;margin-bottom:4px}
+  .login-sub{font-size:13px;color:var(--gray);text-align:center;margin-bottom:30px}
+  .login-err{background:rgba(185,28,28,.1);border:1px solid rgba(185,28,28,.2);border-radius:var(--r-sm);padding:10px 14px;font-size:13px;color:var(--crimson-l);margin-bottom:12px;text-align:center}
+  .login-inp{width:100%;background:var(--card);border:1px solid var(--border-l);border-radius:var(--r-md);padding:14px 16px;color:var(--white);font-size:15px;font-family:var(--font-b);margin-bottom:10px;outline:none;transition:border-color .2s}
+  .login-inp:focus{border-color:var(--crimson)}
+  .login-inp::placeholder{color:var(--muted)}
+  .spinner{width:20px;height:20px;border:2px solid rgba(255,255,255,.3);border-top-color:white;border-radius:50%;animation:spin .6s linear infinite;display:inline-block}
   `;
 }
-
 // ============================================================
-// TOGGLE COMPONENT
+// TOGGLE
 // ============================================================
 function Toggle({on, onChange}) {
   return <button className={`toggle ${on?"on":"off"}`} onClick={()=>onChange(!on)}><div className="toggle-thumb"/></button>;
@@ -450,30 +460,33 @@ function ClassModal({cls,onClose}) {
 }
 
 // ============================================================
-// INSTALL GUIDE
+// INSTALL GUIDE (idiot-proof version)
 // ============================================================
 function InstallGuide({onDismiss}) {
   const [platform, setPlatform] = useState("iphone");
   return <div className="install-guide">
     <button className="ig-dismiss" onClick={onDismiss}><IC icon="x" size={14}/></button>
-    <div className="ig-title">GET THE FULL EXPERIENCE</div>
-    <div className="ig-sub">Add SFC to your home screen for push notifications and instant access</div>
+    <div className="ig-title">WANT THIS AS AN APP?</div>
+    <div className="ig-sub">You can add SFC to your phone's home screen — it'll look and work like a real app. Takes 30 seconds.</div>
     <div className="ig-tabs">
       <button className={`ig-tab ${platform==="iphone"?"on":""}`} onClick={()=>setPlatform("iphone")}>iPhone</button>
       <button className={`ig-tab ${platform==="android"?"on":""}`} onClick={()=>setPlatform("android")}>Android</button>
     </div>
     {platform==="iphone" ? <>
-      <div className="ig-step"><div className="ig-num">1</div><div className="ig-step-text">Tap the <strong>Share</strong> button at the bottom of Safari (the square with the arrow pointing up)</div></div>
-      <div className="ig-step"><div className="ig-num">2</div><div className="ig-step-text">Scroll down and tap <strong>"Add to Home Screen"</strong></div></div>
-      <div className="ig-step"><div className="ig-num">3</div><div className="ig-step-text">Open the app from your home screen and tap <strong>"Allow Notifications"</strong> when prompted</div></div>
+      <div className="ig-step"><div className="ig-num">1</div><div className="ig-step-text">Look at the <strong>very bottom of your screen</strong> in Safari. You'll see a row of icons. Tap the <strong>Share button</strong> — it's the square with an arrow pointing up ↑</div></div>
+      <div className="ig-step"><div className="ig-num">2</div><div className="ig-step-text">A menu will slide up. <strong>Scroll down</strong> in that menu until you see <strong>"Add to Home Screen"</strong> — it has a + icon. Tap it.</div></div>
+      <div className="ig-step"><div className="ig-num">3</div><div className="ig-step-text">Tap <strong>"Add"</strong> in the top right corner. Done! You'll see the SFC icon on your home screen. <strong>Open it from there</strong> for the best experience.</div></div>
+      <div style={{fontSize:11,color:"var(--muted)",marginTop:8,lineHeight:1.5,background:"rgba(128,128,128,.06)",padding:"8px 10px",borderRadius:8}}>
+        <strong>Important:</strong> You MUST use Safari for this. It won't work in Chrome or other browsers on iPhone. Your iPhone needs to be on iOS 16.4 or newer (most are).
+      </div>
     </> : <>
-      <div className="ig-step"><div className="ig-num">1</div><div className="ig-step-text">Tap the <strong>three dots menu</strong> (⋮) in the top-right of Chrome</div></div>
-      <div className="ig-step"><div className="ig-num">2</div><div className="ig-step-text">Tap <strong>"Add to Home screen"</strong> or <strong>"Install app"</strong></div></div>
-      <div className="ig-step"><div className="ig-num">3</div><div className="ig-step-text">Open the app and tap <strong>"Allow"</strong> when the notification prompt appears</div></div>
+      <div className="ig-step"><div className="ig-num">1</div><div className="ig-step-text">Tap the <strong>three dots ⋮</strong> in the top-right corner of Chrome (or your browser's menu button)</div></div>
+      <div className="ig-step"><div className="ig-num">2</div><div className="ig-step-text">Look for <strong>"Add to Home screen"</strong> or <strong>"Install app"</strong> in the menu. Tap it.</div></div>
+      <div className="ig-step"><div className="ig-num">3</div><div className="ig-step-text">Tap <strong>"Install"</strong> or <strong>"Add"</strong>. That's it! The SFC app icon will appear on your home screen.</div></div>
+      <div style={{fontSize:11,color:"var(--muted)",marginTop:8,lineHeight:1.5}}>
+        Most Android phones will also show an "Install" banner at the bottom of the screen automatically.
+      </div>
     </>}
-    <div style={{fontSize:11,color:"var(--muted)",marginTop:8,lineHeight:1.5}}>
-      {platform==="iphone" ? "Requires iOS 16.4 or newer. Push notifications only work when opened from home screen." : "Most Android devices support this automatically."}
-    </div>
   </div>;
 }
 
@@ -483,13 +496,13 @@ function InstallGuide({onDismiss}) {
 function HomePage({setPage, setSelectedClass, announcements, classes, showInstall, onDismissInstall}) {
   const [next,setNext]=useState(getNextClass(classes));
   useEffect(()=>{const i=setInterval(()=>setNext(getNextClass(classes)),60000);return()=>clearInterval(i);},[classes]);
-  const classIcons=["barbell","dumbbell","clock","target","trophy","barbell","barbell","barbell"];
+  const classIcons=["barbell","dumbbell","clock","target","trophy","barbell"];
   return <div className="pg">
     <div className="hero">
       <div className="hero-tag">LIVE LOCAL. <span>LIFT LOCAL.</span></div>
       <div className="hero-sub">Open 24/7 · 130 S Dalton St, Slocomb</div>
       <div className="hero-stats">
-        <div className="hero-s"><div className="hero-sv">7</div><div className="hero-sl">Classes</div></div>
+        <div className="hero-s"><div className="hero-sv">{classes.length}</div><div className="hero-sl">Classes</div></div>
         <div className="hero-s"><div className="hero-sv">24/7</div><div className="hero-sl">Access</div></div>
         <div className="hero-s"><div className="hero-sv">$10</div><div className="hero-sl">Drop-in</div></div>
       </div>
@@ -501,30 +514,23 @@ function HomePage({setPage, setSelectedClass, announcements, classes, showInstal
       <IC icon="chevronRight" size={18} color="var(--muted)"/>
     </div>
 
-    {/* ANNOUNCEMENTS — TOP */}
     <div className="sec-hdr"><div className="sec-label">Announcements</div></div>
-    {announcements.map((a,i)=><div key={a.id} className={`ann ${a.pinned?"pin":""}`} style={{animationDelay:`${i*.06}s`}}>
+    {announcements.length===0 ? <div style={{padding:16,textAlign:"center",color:"var(--muted)",fontSize:13}}>No announcements</div>
+    : announcements.map((a,i)=><div key={a.id} className={`ann ${a.pinned?"pin":""}`} style={{animationDelay:`${i*.06}s`}}>
       <div className="ann-title">{a.title}{a.pinned&&<span className="ann-badge">Pinned</span>}</div>
       <div className="ann-body">{a.body}</div><div className="ann-date">{a.date}</div>
     </div>)}
 
     <div style={{height:8}}/>
-
-    {/* CLASSES */}
     <div className="sec-hdr"><div className="sec-label">Classes</div><button className="see-all" onClick={()=>setPage("schedule")}>Full Schedule →</button></div>
     <div className="cls-scroll">
-      {classes.filter((c,i,a)=>a.findIndex(x=>x.name===c.name)===i).map((cls,i)=>{
-        const dupes=classes.filter(c=>c.name===cls.name);
-        const d=dupes.length>1?{...cls,days:dupes.map(x=>x.days).join(" & "),time:dupes.map(x=>`${x.days.substring(0,3)} ${x.time}`).join(" / ")}:cls;
-        return <div key={cls.id} className="cls-card" onClick={()=>setSelectedClass(cls)}>
-          <div style={{position:"absolute",top:0,left:0,width:"100%",height:3,background:cls.color}}/>
-          <div className="cls-card-icon" style={{background:`${cls.color}20`}}><IC icon={classIcons[i%classIcons.length]} size={20} color={cls.color}/></div>
-          <div className="cls-card-name">{d.name.toUpperCase()}</div><div className="cls-card-time">{d.time}</div><div className="cls-card-days">{d.days}</div>
-        </div>;
-      })}
+      {classes.map((cls,i)=><div key={cls.id} className="cls-card" onClick={()=>setSelectedClass(cls)}>
+        <div style={{position:"absolute",top:0,left:0,width:"100%",height:3,background:cls.color}}/>
+        <div className="cls-card-icon" style={{background:`${cls.color}20`}}><IC icon={classIcons[i%classIcons.length]} size={20} color={cls.color}/></div>
+        <div className="cls-card-name">{cls.name.toUpperCase()}</div><div className="cls-card-time">{cls.time}</div><div className="cls-card-days">{cls.days}</div>
+      </div>)}
     </div>
 
-    {/* INSTALL GUIDE */}
     {showInstall && <InstallGuide onDismiss={onDismissInstall}/>}
   </div>;
 }
@@ -553,7 +559,7 @@ function SchedulePage({setSelectedClass, classes}) {
 
 function WorkoutsPage({workouts}) {
   const cats=Object.keys(workouts);
-  const [cat,setCat]=useState(cats[0]); const [dur,setDur]=useState("30");
+  const [cat,setCat]=useState(cats[0]||"Upper Body"); const [dur,setDur]=useState("30");
   const exs=workouts[cat]?.[dur]||[];
   return <div className="pg">
     <div className="page-title">WORKOUTS</div><div className="page-sub">Quick routines using SFC equipment</div>
@@ -572,10 +578,11 @@ function WorkoutsPage({workouts}) {
 
 function TrainersPage({trainers}) {
   return <div className="pg">
-    <div className="page-title">PERSONAL TRAINERS</div><div className="page-sub">Expert guidance on your fitness journey</div>
-    {trainers.length===0 ? <div style={{background:"var(--card)",borderRadius:"var(--r-lg)",padding:30,textAlign:"center",border:"1px solid var(--border)"}}>
-      <IC icon="user" size={40} color="var(--muted)"/><div style={{fontSize:15,fontWeight:600,marginTop:12}}>Coming Soon</div>
-      <div style={{fontSize:13,color:"var(--muted)",marginTop:4}}>Personal trainer profiles will be added here shortly.</div>
+    <div className="page-title">TRAINERS</div><div className="page-sub">Meet our team</div>
+    {trainers.length===0 ? <div style={{textAlign:"center",padding:"40px 20px",color:"var(--muted)"}}>
+      <IC icon="user" size={40} color="var(--muted)" style={{marginBottom:12}}/>
+      <div style={{fontSize:15,fontWeight:600,marginBottom:4,color:"var(--gray)"}}>Coming Soon</div>
+      <div style={{fontSize:13}}>Personal trainer profiles will be listed here.</div>
     </div>
     : trainers.map((t,i)=><div key={t.id} className="trainer-card" style={{animationDelay:`${i*.08}s`}}>
       <div className="trainer-photo">{t.photo ? <img src={t.photo} alt={t.name}/> : <IC icon="user" size={28} color="var(--muted)"/>}</div>
@@ -604,9 +611,8 @@ function ContactPage() {
     <div className="ct-card"><div className="ct-label">Email</div><div className="ct-val"><a href={`mailto:${GYM.email}`}>{GYM.email}</a></div></div>
     <div style={{display:"flex",gap:8,marginTop:10}}>
       <a href={`tel:${GYM.phone}`} className="btn btn-p" style={{flex:1,textDecoration:"none",textAlign:"center"}}><IC icon="phone" size={16} color="white"/> Call</a>
-      <a href={GYM.facebook} target="_blank" rel="noopener" className="btn btn-s" style={{flex:1,textDecoration:"none",textAlign:"center"}}><IC icon="message" size={16}/> Message</a>
+      <a href={GYM.facebook} target="_blank" rel="noopener" className="btn btn-s" style={{flex:1,textDecoration:"none",textAlign:"center"}}><IC icon="message" size={16}/> Facebook</a>
     </div>
-    {/* SOCIAL MEDIA LINKS */}
     <div style={{marginTop:16}}><div className="sec-label">Follow Us</div></div>
     <div className="social-links">
       <a href={GYM.facebookPage} target="_blank" rel="noopener" className="social-btn"><IC icon="facebook" size={18}/> Facebook</a>
@@ -618,14 +624,9 @@ function ContactPage() {
   </div>;
 }
 
-// ============================================================
-// SETTINGS PAGE (user-facing — replaces gear icon)
-// ============================================================
 function SettingsPage({dark, setDark, notifPrefs, setNotifPrefs}) {
   return <div className="pg">
     <div className="page-title">SETTINGS</div><div className="page-sub">Customize your experience</div>
-
-    {/* APPEARANCE */}
     <div className="set-card">
       <div className="set-title"><IC icon={dark?"moon":"sun"} size={18}/> APPEARANCE</div>
       <div className="set-row">
@@ -633,8 +634,6 @@ function SettingsPage({dark, setDark, notifPrefs, setNotifPrefs}) {
         <Toggle on={dark} onChange={setDark}/>
       </div>
     </div>
-
-    {/* NOTIFICATIONS */}
     <div className="set-card">
       <div className="set-title"><IC icon="bell" size={18}/> NOTIFICATIONS</div>
       <div className="set-row">
@@ -650,20 +649,24 @@ function SettingsPage({dark, setDark, notifPrefs, setNotifPrefs}) {
         <Toggle on={notifPrefs.classes} onChange={v=>setNotifPrefs({...notifPrefs, classes:v})}/>
       </div>
     </div>
-
-    {/* FEEDBACK */}
     <FeedbackSection/>
   </div>;
 }
 
 // ============================================================
-// FEEDBACK SECTION
+// FEEDBACK (saves to Firestore)
 // ============================================================
 function FeedbackSection() {
   const [type,setType]=useState("feedback");
   const [msg,setMsg]=useState("");
   const [sent,setSent]=useState(false);
-  const submit=()=>{if(!msg.trim())return; setSent(true); setMsg(""); setTimeout(()=>setSent(false),3000);};
+  const submit=async()=>{
+    if(!msg.trim())return;
+    try {
+      await addDoc(collection(db, "feedback"), { type, message: msg.trim(), createdAt: serverTimestamp() });
+    } catch(e) { console.error("Feedback save error:", e); }
+    setSent(true); setMsg(""); setTimeout(()=>setSent(false),3000);
+  };
   return <div className="set-card">
     <div className="set-title"><IC icon="flag" size={18}/> FEEDBACK & ISSUES</div>
     <div style={{fontSize:13,color:"var(--gray)",marginBottom:12}}>Let us know how we can improve or report a problem.</div>
@@ -678,9 +681,51 @@ function FeedbackSection() {
     </div> : <button className="btn btn-p" onClick={submit}><IC icon="send" size={14} color="white"/> Submit</button>}
   </div>;
 }
+// ============================================================
+// ADMIN LOGIN
+// ============================================================
+function AdminLogin({onLogin, onBack}) {
+  const [email, setEmail] = useState("");
+  const [pass, setPass] = useState("");
+  const [showPass, setShowPass] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    if(!email || !pass) { setError("Enter your email and password."); return; }
+    setLoading(true); setError("");
+    try {
+      await signInWithEmailAndPassword(auth, email, pass);
+      onLogin();
+    } catch(e) {
+      if(e.code==="auth/user-not-found"||e.code==="auth/invalid-credential") setError("Invalid email or password. Only approved staff can log in.");
+      else if(e.code==="auth/too-many-requests") setError("Too many attempts. Wait a few minutes and try again.");
+      else setError("Login failed. Check your credentials.");
+    }
+    setLoading(false);
+  };
+
+  return <div className="login-wrap">
+    <div className="login-logo"><Icons.sfcLogo width={80} height={80}/></div>
+    <div className="login-title">STAFF LOGIN</div>
+    <div className="login-sub">Admin access for authorized staff only</div>
+    {error && <div className="login-err">{error}</div>}
+    <input className="login-inp" type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email"/>
+    <div style={{position:"relative"}}>
+      <input className="login-inp" type={showPass?"text":"password"} placeholder="Password" value={pass}
+        onChange={e=>setPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleLogin()} autoComplete="current-password"/>
+      <button onClick={()=>setShowPass(!showPass)} style={{position:"absolute",right:12,top:12,background:"none",border:"none",color:"var(--muted)",cursor:"pointer"}}>
+        <IC icon={showPass?"eyeOff":"eye"} size={18}/></button>
+    </div>
+    <button className="btn btn-p" onClick={handleLogin} disabled={loading} style={{marginTop:4}}>
+      {loading ? <span className="spinner"/> : <><IC icon="lock" size={16} color="white"/> Sign In</>}
+    </button>
+    <button onClick={onBack} style={{marginTop:16,background:"none",border:"none",color:"var(--gray)",fontSize:13,cursor:"pointer",textAlign:"center",width:"100%"}}>← Back to App</button>
+  </div>;
+}
 
 // ============================================================
-// ADMIN PANEL
+// ADMIN PANEL (Firebase-powered)
 // ============================================================
 function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncements, workouts, setWorkouts, trainers, setTrainers, feedback}) {
   const [tab,setTab]=useState("dashboard");
@@ -696,12 +741,30 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
 
   const flash=(msg)=>{setToast(msg);setTimeout(()=>setToast(null),2500);};
 
-  const tabs=[
-    {id:"dashboard",label:"Dashboard"},{id:"announcements",label:"Announce"},
-    {id:"notifications",label:"Push"},{id:"classes",label:"Classes"},
-    {id:"workouts",label:"Workouts"},{id:"trainers",label:"Trainers"},
-    {id:"feedback",label:"Feedback"},
-  ];
+  // Firestore CRUD helpers
+  const saveClass = async (cls) => {
+    try { await setDoc(doc(db, "classes", cls.id), cls); } catch(e) { console.error(e); }
+  };
+  const deleteClass = async (id) => {
+    try { await deleteDoc(doc(db, "classes", id)); } catch(e) { console.error(e); }
+  };
+  const saveAnnouncement = async (ann) => {
+    try { await setDoc(doc(db, "announcements", ann.id), ann); } catch(e) { console.error(e); }
+  };
+  const deleteAnnouncement = async (id) => {
+    try { await deleteDoc(doc(db, "announcements", id)); } catch(e) { console.error(e); }
+  };
+  const saveTrainer = async (t) => {
+    try { await setDoc(doc(db, "trainers", String(t.id)), t); } catch(e) { console.error(e); }
+  };
+  const deleteTrainer = async (id) => {
+    try { await deleteDoc(doc(db, "trainers", String(id))); } catch(e) { console.error(e); }
+  };
+  const saveWorkouts = async (wo) => {
+    try { await setDoc(doc(db, "config", "workouts"), { data: JSON.stringify(wo) }); } catch(e) { console.error(e); }
+  };
+
+  const handleLogout = async () => { await signOut(auth); onExit(); };
 
   const toggleSpec=(spec)=>{
     setNewTrainer(prev=>{
@@ -710,19 +773,30 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
     });
   };
 
+  const tabs=[
+    {id:"dashboard",label:"Dashboard"},{id:"announcements",label:"Announce"},
+    {id:"notifications",label:"Push"},{id:"classes",label:"Classes"},
+    {id:"workouts",label:"Workouts"},{id:"trainers",label:"Trainers"},
+    {id:"feedback",label:"Feedback"},
+  ];
+
   return <div className="adm" style={{animation:"fadeIn .3s ease"}}>
     {toast&&<div className="toast">{toast}</div>}
     <div className="adm-hdr">
       <div><div className="adm-title">SFC ADMIN</div><div style={{fontSize:11,color:"var(--muted)"}}>Manage your gym app</div></div>
-      <div style={{display:"flex",gap:6,alignItems:"center"}}><div className="adm-badge">STAFF</div><button className="adm-ib" onClick={onExit}><IC icon="x" size={16}/></button></div>
+      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+        <div className="adm-badge">STAFF</div>
+        <button className="adm-ib" onClick={handleLogout} title="Logout"><IC icon="lock" size={14}/></button>
+        <button className="adm-ib" onClick={onExit}><IC icon="x" size={16}/></button>
+      </div>
     </div>
     <div className="adm-tabs">{tabs.map(t=><button key={t.id} className={`adm-tab ${tab===t.id?"on":""}`} onClick={()=>setTab(t.id)}>{t.label}</button>)}</div>
 
     {tab==="dashboard"&&<>
       <div className="adm-grid">
-        <div className="adm-stat"><div className="adm-stat-v" style={{color:"var(--crimson-l)"}}>847</div><div className="adm-stat-l">Total Members</div></div>
-        <div className="adm-stat"><div className="adm-stat-v" style={{color:"var(--gold)"}}>126</div><div className="adm-stat-l">App Installs</div></div>
-        <div className="adm-stat"><div className="adm-stat-v" style={{color:"var(--gray)"}}>89</div><div className="adm-stat-l">Push Subscribers</div></div>
+        <div className="adm-stat"><div className="adm-stat-v" style={{color:"var(--crimson-l)"}}>{classes.length}</div><div className="adm-stat-l">Active Classes</div></div>
+        <div className="adm-stat"><div className="adm-stat-v" style={{color:"var(--gold)"}}>{announcements.length}</div><div className="adm-stat-l">Announcements</div></div>
+        <div className="adm-stat"><div className="adm-stat-v" style={{color:"var(--gray)"}}>{feedback.length}</div><div className="adm-stat-l">Feedback</div></div>
       </div>
       <div className="adm-sec"><div className="adm-sec-t"><IC icon="target" size={18}/> QUICK ACTIONS</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
@@ -740,11 +814,18 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
       <textarea className="adm-ta" placeholder="Message..." value={newAnn.body} onChange={e=>setNewAnn({...newAnn,body:e.target.value})}/>
       <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:13,color:"var(--gray)",cursor:"pointer"}}>
         <input type="checkbox" checked={newAnn.pinned} onChange={e=>setNewAnn({...newAnn,pinned:e.target.checked})}/> Pin to top</label>
-      <button className="btn btn-p" onClick={()=>{if(!newAnn.title)return;const id=Date.now();const today=new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
-        setAnnouncements(p=>[{...newAnn,id,date:today},...p]);setNewAnn({title:"",body:"",pinned:false,type:"announcement"});flash("Announcement posted");}}>Post Announcement</button>
+      <button className="btn btn-p" onClick={async()=>{
+        if(!newAnn.title)return;
+        const id=`a${Date.now()}`;
+        const today=new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
+        const ann={...newAnn,id,date:today};
+        setAnnouncements(p=>[ann,...p]);
+        await saveAnnouncement(ann);
+        setNewAnn({title:"",body:"",pinned:false,type:"announcement"});flash("Announcement posted");
+      }}>Post Announcement</button>
       <div style={{marginTop:20}}><div style={{fontSize:12,fontWeight:700,color:"var(--muted)",marginBottom:10}}>EXISTING</div>
         {announcements.map(a=><div key={a.id} className="adm-row"><div className="adm-row-c"><div className="adm-row-t">{a.title}</div><div className="adm-row-s">{a.date}</div></div>
-          <button className="adm-ib del" onClick={()=>setAnnouncements(p=>p.filter(x=>x.id!==a.id))}><IC icon="trash" size={14}/></button></div>)}
+          <button className="adm-ib del" onClick={async()=>{setAnnouncements(p=>p.filter(x=>x.id!==a.id));await deleteAnnouncement(a.id);flash("Removed");}}><IC icon="trash" size={14}/></button></div>)}
       </div>
     </div>}
 
@@ -755,16 +836,16 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
       <textarea className="adm-ta" placeholder="Message..." value={notifForm.body} onChange={e=>setNotifForm({...notifForm,body:e.target.value})}/>
       <div style={{marginBottom:10}}>
         <div style={{fontSize:12,fontWeight:700,color:"var(--muted)",marginBottom:6}}>SEND TO</div>
-        <div style={{display:"flex",gap:4}}>
+        <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
           {["all","announcements","classes"].map(c=><button key={c} className={`fb-type-btn ${notifForm.category===c?"on":""}`}
-            onClick={()=>setNotifForm({...notifForm,category:c})} style={{textTransform:"capitalize"}}>{c==="all"?"All Members":c==="announcements"?"Announcement Subscribers":"Class Update Subscribers"}</button>)}
+            onClick={()=>setNotifForm({...notifForm,category:c})} style={{textTransform:"capitalize"}}>{c==="all"?"All Members":c==="announcements"?"Announcement Subs":"Class Update Subs"}</button>)}
         </div>
       </div>
       <button className="btn btn-p" onClick={()=>{flash("Push notification sent!");setNotifForm({title:"",body:"",category:"all"});}}>
         <IC icon="send" size={14} color="white"/> Send Notification</button>
       <div style={{marginTop:16,padding:12,background:"var(--gold-m)",borderRadius:10,border:"1px solid rgba(201,169,110,.15)"}}>
         <div style={{fontSize:11,fontWeight:700,color:"var(--gold)",marginBottom:3}}>DELIVERY NOTE</div>
-        <div style={{fontSize:12,color:"var(--gray)",lineHeight:1.5}}>Android: instant. iPhone: works when app is on home screen (iOS 16.4+). Back up with Facebook posts.</div>
+        <div style={{fontSize:12,color:"var(--gray)",lineHeight:1.5}}>Android: instant. iPhone: works when app is on home screen (iOS 16.4+). Back up important announcements with Facebook posts.</div>
       </div>
     </div>}
 
@@ -777,14 +858,18 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
         <input className="adm-inp" placeholder="Time (e.g. 5:15 AM)" value={editingClass.time} onChange={e=>setEditingClass({...editingClass,time:e.target.value})}/>
         <input className="adm-inp" placeholder="Category" value={editingClass.category} onChange={e=>setEditingClass({...editingClass,category:e.target.value})}/>
         <textarea className="adm-ta" placeholder="Description..." value={editingClass.description} onChange={e=>setEditingClass({...editingClass,description:e.target.value})}/>
-        <div style={{display:"flex",gap:8}}><button className="btn btn-p" style={{flex:1}} onClick={()=>{setClasses(p=>p.map(c=>c.id===editingClass.id?{...editingClass}:c));setEditingClass(null);flash("Class updated");}}>Save</button>
+        <div style={{display:"flex",gap:8}}><button className="btn btn-p" style={{flex:1}} onClick={async()=>{
+          setClasses(p=>p.map(c=>c.id===editingClass.id?{...editingClass}:c));
+          await saveClass(editingClass);
+          setEditingClass(null);flash("Class updated");
+        }}>Save</button>
         <button className="btn btn-s" style={{flex:1}} onClick={()=>setEditingClass(null)}>Cancel</button></div>
       </div> : <>
         {classes.map(cls=><div key={cls.id} className="adm-row">
           <div style={{width:6,height:36,borderRadius:3,background:cls.color,flexShrink:0}}/>
           <div className="adm-row-c"><div className="adm-row-t">{cls.name}</div><div className="adm-row-s">{cls.days} · {cls.time}</div></div>
           <div className="adm-row-a"><button className="adm-ib" onClick={()=>setEditingClass({...cls})}><IC icon="edit" size={14}/></button>
-          <button className="adm-ib del" onClick={()=>{setClasses(p=>p.filter(c=>c.id!==cls.id));flash("Class removed");}}><IC icon="trash" size={14}/></button></div>
+          <button className="adm-ib del" onClick={async()=>{setClasses(p=>p.filter(c=>c.id!==cls.id));await deleteClass(cls.id);flash("Class removed");}}><IC icon="trash" size={14}/></button></div>
         </div>)}
         <div style={{marginTop:16,background:"var(--input-bg)",borderRadius:12,padding:16,border:"1px solid var(--border-l)"}}>
           <div style={{fontSize:12,fontWeight:700,color:"var(--muted)",marginBottom:10}}>ADD NEW CLASS</div>
@@ -793,8 +878,13 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
           <input className="adm-inp" placeholder="Time (e.g. 6:00 PM)" value={newClass.time} onChange={e=>setNewClass({...newClass,time:e.target.value})}/>
           <input className="adm-inp" placeholder="Category" value={newClass.category} onChange={e=>setNewClass({...newClass,category:e.target.value})}/>
           <textarea className="adm-ta" placeholder="Description..." value={newClass.description} onChange={e=>setNewClass({...newClass,description:e.target.value})}/>
-          <button className="btn btn-p" onClick={()=>{if(!newClass.name||!newClass.days||!newClass.time)return;setClasses(p=>[...p,{...newClass,id:Date.now()}]);
-            setNewClass({name:"",days:"",time:"",color:"#B91C1C",description:"",category:""});flash("Class added");}}><IC icon="plus" size={14} color="white"/> Add Class</button>
+          <button className="btn btn-p" onClick={async()=>{
+            if(!newClass.name||!newClass.days||!newClass.time)return;
+            const cls={...newClass,id:`c${Date.now()}`};
+            setClasses(p=>[...p,cls]);
+            await saveClass(cls);
+            setNewClass({name:"",days:"",time:"",color:"#B91C1C",description:"",category:""});flash("Class added");
+          }}><IC icon="plus" size={14} color="white"/> Add Class</button>
         </div>
       </>}
     </div>}
@@ -809,15 +899,24 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
       {(workouts[woCategory]?.[woDuration]||[]).map((ex,i)=><div key={ex.id} className="adm-row">
         <div style={{fontFamily:"var(--font-d)",fontSize:16,color:"var(--crimson-l)",width:24,textAlign:"center"}}>{i+1}</div>
         <div className="adm-row-c"><div className="adm-row-t">{ex.name}</div><div className="adm-row-s">{ex.sets} × {ex.reps}</div></div>
-        <button className="adm-ib del" onClick={()=>{setWorkouts(p=>{const u=JSON.parse(JSON.stringify(p));u[woCategory][woDuration]=u[woCategory][woDuration].filter(e=>e.id!==ex.id);return u;});flash("Removed");}}><IC icon="trash" size={14}/></button>
+        <button className="adm-ib del" onClick={async()=>{
+          const u=JSON.parse(JSON.stringify(workouts));
+          u[woCategory][woDuration]=u[woCategory][woDuration].filter(e=>e.id!==ex.id);
+          setWorkouts(u); await saveWorkouts(u); flash("Removed");
+        }}><IC icon="trash" size={14}/></button>
       </div>)}
       <div style={{marginTop:14,background:"var(--input-bg)",borderRadius:12,padding:14,border:"1px solid var(--border-l)"}}>
         <div style={{fontSize:12,fontWeight:700,color:"var(--muted)",marginBottom:8}}>ADD EXERCISE</div>
         <input className="adm-inp" placeholder="Exercise name" value={newExercise.name} onChange={e=>setNewExercise({...newExercise,name:e.target.value})}/>
         <div style={{display:"flex",gap:6}}><input className="adm-inp" type="number" placeholder="Sets" value={newExercise.sets} onChange={e=>setNewExercise({...newExercise,sets:+e.target.value||0})} style={{flex:1}}/>
         <input className="adm-inp" placeholder="Reps" value={newExercise.reps} onChange={e=>setNewExercise({...newExercise,reps:e.target.value})} style={{flex:1}}/></div>
-        <button className="btn btn-p" onClick={()=>{if(!newExercise.name)return;setWorkouts(p=>{const u=JSON.parse(JSON.stringify(p));u[woCategory][woDuration].push({...newExercise,id:`c-${Date.now()}`});return u;});
-          setNewExercise({name:"",sets:3,reps:"10"});flash("Exercise added");}}><IC icon="plus" size={14} color="white"/> Add</button>
+        <button className="btn btn-p" onClick={async()=>{
+          if(!newExercise.name)return;
+          const u=JSON.parse(JSON.stringify(workouts));
+          u[woCategory][woDuration].push({...newExercise,id:`e${Date.now()}`});
+          setWorkouts(u); await saveWorkouts(u);
+          setNewExercise({name:"",sets:3,reps:"10"});flash("Exercise added");
+        }}><IC icon="plus" size={14} color="white"/> Add</button>
       </div>
     </div>}
 
@@ -827,7 +926,7 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
         <div style={{width:36,height:36,borderRadius:10,background:"var(--input-bg)",border:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}>
           {t.photo?<img src={t.photo} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<IC icon="user" size={16} color="var(--muted)"/>}</div>
         <div className="adm-row-c"><div className="adm-row-t">{t.name}</div><div className="adm-row-s">{t.specialties?.join(", ")}</div></div>
-        <button className="adm-ib del" onClick={()=>{setTrainers(p=>p.filter(x=>x.id!==t.id));flash("Trainer removed");}}><IC icon="trash" size={14}/></button>
+        <button className="adm-ib del" onClick={async()=>{setTrainers(p=>p.filter(x=>x.id!==t.id));await deleteTrainer(t.id);flash("Trainer removed");}}><IC icon="trash" size={14}/></button>
       </div>)}
       <div style={{marginTop:14,background:"var(--input-bg)",borderRadius:12,padding:14,border:"1px solid var(--border-l)"}}>
         <div style={{fontSize:12,fontWeight:700,color:"var(--muted)",marginBottom:8}}>ADD TRAINER</div>
@@ -837,38 +936,137 @@ function AdminPanel({onExit, classes, setClasses, announcements, setAnnouncement
         <input className="adm-inp" placeholder="Photo URL" value={newTrainer.photo||""} onChange={e=>setNewTrainer({...newTrainer,photo:e.target.value})}/>
         <div style={{fontSize:12,fontWeight:700,color:"var(--muted)",marginBottom:6,marginTop:4}}>SPECIALTIES (select all that apply)</div>
         <div className="spec-grid">{TRAINER_SPECIALTIES.map(s=><button key={s} className={`spec-chip ${newTrainer.specialties.includes(s)?"on":""}`} onClick={()=>toggleSpec(s)}>{s}</button>)}</div>
-        <button className="btn btn-p" onClick={()=>{if(!newTrainer.name)return;setTrainers(p=>[...p,{...newTrainer,id:Date.now()}]);
-          setNewTrainer({name:"",bio:"",contact:"",photo:null,specialties:[]});flash("Trainer added");}}><IC icon="plus" size={14} color="white"/> Add Trainer</button>
+        <button className="btn btn-p" onClick={async()=>{
+          if(!newTrainer.name)return;
+          const t={...newTrainer,id:Date.now()};
+          setTrainers(p=>[...p,t]);
+          await saveTrainer(t);
+          setNewTrainer({name:"",bio:"",contact:"",photo:null,specialties:[]});flash("Trainer added");
+        }}><IC icon="plus" size={14} color="white"/> Add Trainer</button>
       </div>
     </div>}
 
     {tab==="feedback"&&<div className="adm-sec">
       <div className="adm-sec-t"><IC icon="flag" size={18}/> MEMBER FEEDBACK</div>
       {feedback.length===0 ? <div style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:13}}>No feedback submitted yet. Member submissions will appear here.</div>
-      : feedback.map((f,i)=><div key={i} className="adm-row"><div className="adm-row-c">
-        <div className="adm-row-t" style={{textTransform:"capitalize"}}>{f.type}</div><div className="adm-row-s">{f.msg}</div></div></div>)}
+      : feedback.map((f,i)=><div key={f.id||i} className="adm-row"><div className="adm-row-c">
+        <div className="adm-row-t" style={{textTransform:"capitalize"}}>{f.type}</div>
+        <div className="adm-row-s">{f.message}</div>
+        {f.createdAt && <div style={{fontSize:10,color:"var(--muted)",marginTop:2}}>{new Date(f.createdAt.seconds*1000).toLocaleDateString()}</div>}
+      </div></div>)}
     </div>}
   </div>;
 }
-
 // ============================================================
 // MAIN APP
 // ============================================================
 export default function App() {
   const [page, setPage] = useState("home");
   const [selectedClass, setSelectedClass] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [isAuthed, setIsAuthed] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
-  const [dark, setDark] = useState(true);
-  const [showInstall, setShowInstall] = useState(true);
-  const [notifPrefs, setNotifPrefs] = useState({all:true, announcements:true, classes:true});
+  const [dark, setDark] = useState(() => loadPref("dark", true));
+  const [showInstall, setShowInstall] = useState(() => loadPref("showInstall", true));
+  const [notifPrefs, setNotifPrefs] = useState(() => loadPref("notifPrefs", {all:true, announcements:true, classes:true}));
+  const [loading, setLoading] = useState(true);
 
-  const [classes, setClasses] = useState(INITIAL_CLASSES);
-  const [announcements, setAnnouncements] = useState(INITIAL_ANNOUNCEMENTS);
-  const [notifications] = useState(INITIAL_NOTIFICATIONS);
-  const [workouts, setWorkouts] = useState(INITIAL_WORKOUTS);
-  const [trainers, setTrainers] = useState(INITIAL_TRAINERS);
-  const [feedback] = useState([]);
+  const [classes, setClasses] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
+  const [notifications] = useState([
+    { id:1, title:"Welcome to SFC!", body:"You'll get important updates here — class cancellations, schedule changes, and gym news.", time:"Just now", read:false, type:"announcement" },
+  ]);
+  const [workouts, setWorkouts] = useState(DEFAULT_WORKOUTS);
+  const [trainers, setTrainers] = useState([]);
+  const [feedback, setFeedback] = useState([]);
+
+  // Save prefs to localStorage when they change
+  useEffect(() => { savePref("dark", dark); }, [dark]);
+  useEffect(() => { savePref("notifPrefs", notifPrefs); }, [notifPrefs]);
+  const dismissInstall = useCallback(() => { setShowInstall(false); savePref("showInstall", false); }, []);
+
+  // Listen for auth state
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setIsAuthed(!!user);
+    });
+    return unsub;
+  }, []);
+
+  // Load data from Firestore (with real-time listeners)
+  useEffect(() => {
+    let unsubClasses, unsubAnn, unsubTrainers, unsubFeedback;
+
+    const loadData = async () => {
+      // Classes listener
+      unsubClasses = onSnapshot(collection(db, "classes"), (snap) => {
+        if (snap.empty) {
+          // Seed with defaults if collection is empty
+          DEFAULT_CLASSES.forEach(c => setDoc(doc(db, "classes", c.id), c).catch(()=>{}));
+          setClasses(DEFAULT_CLASSES);
+        } else {
+          setClasses(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+        }
+      }, (err) => {
+        console.error("Classes listener error:", err);
+        setClasses(DEFAULT_CLASSES);
+      });
+
+      // Announcements listener
+      unsubAnn = onSnapshot(collection(db, "announcements"), (snap) => {
+        if (snap.empty) {
+          DEFAULT_ANNOUNCEMENTS.forEach(a => setDoc(doc(db, "announcements", a.id), a).catch(()=>{}));
+          setAnnouncements(DEFAULT_ANNOUNCEMENTS);
+        } else {
+          const anns = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+          anns.sort((a, b) => {
+            if (a.pinned && !b.pinned) return -1;
+            if (!a.pinned && b.pinned) return 1;
+            return 0;
+          });
+          setAnnouncements(anns);
+        }
+      }, (err) => {
+        console.error("Announcements listener error:", err);
+        setAnnouncements(DEFAULT_ANNOUNCEMENTS);
+      });
+
+      // Trainers listener
+      unsubTrainers = onSnapshot(collection(db, "trainers"), (snap) => {
+        setTrainers(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+      }, () => setTrainers([]));
+
+      // Feedback listener (admin only, but load anyway)
+      unsubFeedback = onSnapshot(collection(db, "feedback"), (snap) => {
+        setFeedback(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+      }, () => setFeedback([]));
+
+      // Workouts (single document)
+      try {
+        const woSnap = await getDocs(collection(db, "config"));
+        const woDoc = woSnap.docs.find(d => d.id === "workouts");
+        if (woDoc && woDoc.data().data) {
+          setWorkouts(JSON.parse(woDoc.data().data));
+        } else {
+          await setDoc(doc(db, "config", "workouts"), { data: JSON.stringify(DEFAULT_WORKOUTS) }).catch(()=>{});
+          setWorkouts(DEFAULT_WORKOUTS);
+        }
+      } catch {
+        setWorkouts(DEFAULT_WORKOUTS);
+      }
+
+      setLoading(false);
+    };
+
+    loadData();
+
+    return () => {
+      if (unsubClasses) unsubClasses();
+      if (unsubAnn) unsubAnn();
+      if (unsubTrainers) unsubTrainers();
+      if (unsubFeedback) unsubFeedback();
+    };
+  }, []);
 
   const hasUnread = notifications.some(n => !n.read);
 
@@ -881,9 +1079,25 @@ export default function App() {
     {id:"settings",icon:"settings",label:"Settings"},
   ];
 
-  if (isAdmin) return <>
+  // Loading screen
+  if (loading) return <>
     <style>{getCSS(dark)}</style>
-    <AdminPanel onExit={()=>setIsAdmin(false)} classes={classes} setClasses={setClasses}
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"var(--bg)"}}>
+      <Icons.sfcLogo width={60} height={60}/>
+      <div style={{marginTop:16}}><span className="spinner" style={{borderColor:"rgba(185,28,28,.3)",borderTopColor:"#B91C1C"}}/></div>
+    </div>
+  </>;
+
+  // Admin login screen
+  if (showAdmin && !isAuthed) return <>
+    <style>{getCSS(dark)}</style>
+    <AdminLogin onLogin={()=>{}} onBack={()=>setShowAdmin(false)}/>
+  </>;
+
+  // Admin panel (authenticated)
+  if (showAdmin && isAuthed) return <>
+    <style>{getCSS(dark)}</style>
+    <AdminPanel onExit={()=>setShowAdmin(false)} classes={classes} setClasses={setClasses}
       announcements={announcements} setAnnouncements={setAnnouncements}
       workouts={workouts} setWorkouts={setWorkouts} trainers={trainers} setTrainers={setTrainers} feedback={feedback}/>
   </>;
@@ -898,13 +1112,13 @@ export default function App() {
         </div>
         <div className="hdr-actions">
           <button className={`hdr-btn notif ${hasUnread?"has":""}`} onClick={()=>setShowNotifs(true)}><IC icon="bell" size={18}/></button>
-          <button className="hdr-btn" onClick={()=>setIsAdmin(true)} title="Admin Login" style={{fontSize:10,fontFamily:"var(--font-d)",letterSpacing:1}}>
+          <button className="hdr-btn" onClick={()=>setShowAdmin(true)} title="Admin Login" style={{fontSize:10,fontFamily:"var(--font-d)",letterSpacing:1}}>
             ADM
           </button>
         </div>
       </header>
 
-      {page==="home"&&<HomePage setPage={setPage} setSelectedClass={setSelectedClass} announcements={announcements} classes={classes} showInstall={showInstall} onDismissInstall={()=>setShowInstall(false)}/>}
+      {page==="home"&&<HomePage setPage={setPage} setSelectedClass={setSelectedClass} announcements={announcements} classes={classes} showInstall={showInstall} onDismissInstall={dismissInstall}/>}
       {page==="schedule"&&<SchedulePage setSelectedClass={setSelectedClass} classes={classes}/>}
       {page==="workouts"&&<WorkoutsPage workouts={workouts}/>}
       {page==="trainers"&&<TrainersPage trainers={trainers}/>}
@@ -916,7 +1130,7 @@ export default function App() {
 
       <nav className="bnav">
         {navItems.map(item=><button key={item.id} className={`nav-i ${page===item.id?"on":""}`} onClick={()=>setPage(item.id)}>
-          <IC icon={item.icon} size={22} className="nav-i-ic"/><span className="nav-i-lb">{item.label}</span>
+          <IC icon={item.icon} size={24} className="nav-i-ic"/><span className="nav-i-lb">{item.label}</span>
         </button>)}
       </nav>
     </div>
